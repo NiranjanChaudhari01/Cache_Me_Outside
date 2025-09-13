@@ -136,10 +136,10 @@ export const ClientPortal: React.FC = () => {
         <div className="space-y-2">
           {labels.entities.map((entity: any, index: number) => (
             <div key={index} className="flex items-center space-x-2">
-              <span className={`entity-highlight entity-${entity.label} text-xs`}>
+              <span className={`entity-highlight entity-${entity.class_name} text-xs`}>
                 {entity.text}
               </span>
-              <span className="text-sm text-gray-600">({entity.label})</span>
+              <span className="text-sm text-gray-600">({entity.class_name})</span>
             </div>
           ))}
         </div>

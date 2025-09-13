@@ -65,8 +65,18 @@ export const projectApi = {
   getStats: (projectId: number): Promise<ProjectStats> => 
     api.get(`/projects/${projectId}/stats`).then(res => res.data),
   
-  exportData: (projectId: number): Promise<{ data: any[], count: number }> => 
-    api.get(`/projects/${projectId}/export`).then(res => res.data),
+  exportData: (projectId: number): Promise<{ data: any[], count: number }> => {
+    console.log('📤 API Export call:', { projectId, url: `/projects/${projectId}/export` });
+    return api.get(`/projects/${projectId}/export`).then(res => {
+      console.log('📤 API Export response:', { count: res.data.count, taskCount: res.data.data.length });
+      return res.data;
+    });
+  },
+  
+  exportNerCsv: (projectId: number): Promise<Blob> => 
+    api.get(`/projects/${projectId}/export-ner-csv`, {
+      responseType: 'blob'
+    }).then(res => res.data),
 };
 
 // Task API
@@ -76,11 +86,21 @@ export const taskApi = {
     return api.get(`/projects/${projectId}/tasks/pending`, { params }).then(res => res.data);
   },
   
-  review: (taskId: number, finalLabels: any, annotatorId: number): Promise<{ message: string }> => 
-    api.put(`/tasks/${taskId}/review`, { 
+  review: (taskId: number, finalLabels: any, annotatorId: number): Promise<{ message: string }> => {
+    console.log('🔄 API Review call:', {
+      taskId,
+      finalLabels,
+      annotatorId,
+      url: `/tasks/${taskId}/review`
+    });
+    return api.put(`/tasks/${taskId}/review`, { 
       final_labels: finalLabels, 
       annotator_id: annotatorId 
-    }).then(res => res.data),
+    }).then(res => {
+      console.log('✅ API Review response:', res.data);
+      return res.data;
+    });
+  },
   
   getSampleTasks: (projectId: number, limit?: number): Promise<Task[]> => {
     const params = limit ? { limit } : {};

@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
 import pandas as pd
-from io import StringIO
+from io import StringIO, BytesIO
+import csv
+import re
 
 from database import get_db, init_db
 from models import Project, Task, Annotator, ClientFeedback, Guideline, TaskStatus, FeedbackAction
@@ -126,7 +128,23 @@ async def upload_dataset(
             
             # Handle Amazon dataset format - use review_body as text
             if 'review_body' in df.columns:
-                texts = df['review_body'].dropna().tolist()
+                # Create texts with full context for CSV files
+                texts = []
+                for i, row in df.iterrows():
+                    if pd.notna(row['review_body']):
+                        texts.append({
+                            'text': row['review_body'],  # This will be the text to annotate
+                            'full_text': row['review_body'],  # For CSV, the text IS the full context
+                            'metadata': {
+                                'source_file': file.filename,
+                                'row_index': i,
+                                'product_title': row.get('product_title', ''),
+                                'product_category': row.get('product_category', ''),
+                                'star_rating': row.get('star_rating', ''),
+                                'review_headline': row.get('review_headline', '')
+                            }
+                        })
+                
                 # Store additional metadata for context
                 metadata = {
                     'product_titles': df['product_title'].tolist() if 'product_title' in df.columns else [],
@@ -135,23 +153,82 @@ async def upload_dataset(
                     'review_headlines': df['review_headline'].tolist() if 'review_headline' in df.columns else []
                 }
             elif 'text' in df.columns:
-                texts = df['text'].tolist()
+                # Create texts with full context for CSV files with 'text' column
+                texts = []
+                for i, row in df.iterrows():
+                    if pd.notna(row['text']):
+                        texts.append({
+                            'text': row['text'],  # This will be the text to annotate
+                            'full_text': row['text'],  # For CSV, the text IS the full context
+                            'metadata': {
+                                'source_file': file.filename,
+                                'row_index': i
+                            }
+                        })
                 metadata = {}
             else:
                 # Fallback to first column
-                texts = df.iloc[:, 0].tolist()
+                texts = []
+                for i, row in df.iterrows():
+                    if pd.notna(row.iloc[0]):
+                        texts.append({
+                            'text': row.iloc[0],  # This will be the text to annotate
+                            'full_text': row.iloc[0],  # For CSV, the text IS the full context
+                            'metadata': {
+                                'source_file': file.filename,
+                                'row_index': i
+                            }
+                        })
                 metadata = {}
                 
         elif file.filename.endswith('.json'):
             data = json.loads(content.decode('utf-8'))
             texts = [item['text'] for item in data] if isinstance(data, list) else [data['text']]
             metadata = {}
+        elif file.filename.endswith('.txt') or file.filename.endswith('.text'):
+            # Handle text files - split by punctuation and line breaks
+            text_content = content.decode('utf-8')
+            # Split by sentence boundaries (periods, exclamation marks, question marks) and line breaks
+            # Use a more intelligent splitting that preserves dates and doesn't split on commas
+            split_pattern = r'[.!?]+\s+|[\n\r]+'
+            sentences = [s.strip() for s in re.split(split_pattern, text_content) if s.strip()]
+            
+            # If no sentences found (no sentence-ending punctuation), treat the whole text as one sentence
+            if not sentences:
+                sentences = [text_content.strip()]
+            
+            # Create texts with metadata including original full text
+            texts = []
+            for i, sentence in enumerate(sentences):
+                texts.append({
+                    'text': sentence,  # This will be the text to annotate
+                    'full_text': text_content,  # Store the full original text content
+                    'metadata': {
+                        'source_file': file.filename,
+                        'original_text': text_content,  # Store full original text
+                        'sentence_index': i,
+                        'total_sentences': len(sentences)
+                    }
+                })
+            
+            metadata = {'source_file': file.filename}
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
         
         # Create tasks
         tasks_created = 0
-        for i, text in enumerate(texts):
+        for i, text_data in enumerate(texts):
+            # Handle both string texts and text objects with metadata
+            if isinstance(text_data, dict):
+                text = text_data['text']
+                full_text = text_data.get('full_text', text)  # Use full_text if available
+                text_metadata = text_data.get('metadata', {})
+                text_metadata['full_text'] = full_text  # Store full text in metadata
+            else:
+                text = text_data
+                full_text = text_data
+                text_metadata = {}
+            
             if text and len(text.strip()) > 0:
                 # Include metadata if available
                 task_metadata = {}
@@ -164,6 +241,10 @@ async def upload_dataset(
                         task_metadata['star_rating'] = metadata['star_ratings'][i]
                     if 'review_headlines' in metadata and i < len(metadata['review_headlines']):
                         task_metadata['review_headline'] = metadata['review_headlines'][i]
+                
+                # Add text-specific metadata (for .txt files)
+                if text_metadata:
+                    task_metadata.update(text_metadata)
                 
                 task = Task(
                     project_id=project_id,
@@ -436,7 +517,7 @@ async def export_labeled_data(project_id: int, db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(
         Task.project_id == project_id,
         Task.status.in_([TaskStatus.CLIENT_APPROVED, TaskStatus.REVIEWED])
-    ).all()
+    ).order_by(Task.id.asc()).all()  # Order by ID to match UI order
     
     export_data = []
     for task in tasks:
@@ -450,6 +531,59 @@ async def export_labeled_data(project_id: int, db: Session = Depends(get_db)):
         })
     
     return {"data": export_data, "count": len(export_data)}
+
+# NER CSV Export endpoint
+@app.get("/projects/{project_id}/export-ner-csv")
+async def export_ner_csv(project_id: int, db: Session = Depends(get_db)):
+    """Export NER results as CSV with id, input_text, annotation format"""
+    # Get all tasks with NER annotations
+    tasks = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.auto_labels.isnot(None)
+    ).order_by(Task.id.asc()).all()  # Order by ID to match UI order
+    
+    if not tasks:
+        raise HTTPException(status_code=404, detail="No annotated tasks found")
+    
+    # Create CSV content
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow(['id', 'input_text', 'annotation'])
+    
+    for task in tasks:
+        if task.auto_labels and 'entities' in task.auto_labels:
+            entities = task.auto_labels['entities']
+            
+            # Create annotation object with class_name, start_index, end_index
+            annotation = []
+            for entity in entities:
+                annotation.append({
+                    'class_name': entity['class_name'],
+                    'start_index': entity['start_index'],
+                    'end_index': entity['end_index']
+                })
+            
+            # Write row
+            writer.writerow([
+                task.id,
+                task.text,
+                json.dumps(annotation)
+            ])
+    
+    output.seek(0)
+    
+    # Return as streaming response
+    def iter_file():
+        content = output.getvalue()
+        yield content.encode('utf-8')
+    
+    return StreamingResponse(
+        iter_file(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=ner_results_project_{project_id}.csv"}
+    )
 
 # Active learning endpoints
 @app.get("/projects/{project_id}/training-stats")

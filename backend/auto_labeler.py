@@ -87,22 +87,45 @@ class AutoLabeler:
         return result
     
     def extract_entities(self, text: str) -> Dict[str, Any]:
-        """Extract named entities using spaCy"""
+        """Extract named entities using spaCy - focused on PERSON and LOCATION"""
         if not self.nlp:
-            return self.fallback_ner(text)
+            # Return empty result if spaCy is not available
+            return {
+                "labels": {
+                    "entities": [],
+                    "entity_count": 0,
+                    "entity_types": []
+                },
+                "confidence": 0.0,
+                "model_used": "spacy_unavailable",
+                "timestamp": datetime.utcnow().isoformat()
+            }
         
         try:
             doc = self.nlp(text)
             entities = []
             confidence_scores = []
             
+            # Filter for only PERSON and LOCATION entities
+            target_labels = ['PERSON', 'GPE', 'LOC', 'EVENT', 'ORG']  # GPE = Geopolitical entity, LOC = Location, EVENT = Historical events, ORG = Organizations/Names
+            
             for ent in doc.ents:
+                # Map spaCy labels to our target labels
+                if ent.label_ in ['PERSON']:
+                    class_name = 'PER'
+                elif ent.label_ in ['GPE', 'LOC', 'EVENT']:
+                    class_name = 'LOC'
+                elif ent.label_ in ['ORG']:
+                    class_name = 'PER'  # Organizations/names like "Napoleon" are treated as persons
+                else:
+                    continue  # Skip other entity types
+                
                 entities.append({
+                    "class_name": class_name,
+                    "start_index": ent.start_char,
+                    "end_index": ent.end_char,
                     "text": ent.text,
-                    "label": ent.label_,
-                    "start": ent.start_char,
-                    "end": ent.end_char,
-                    "description": spacy.explain(ent.label_)
+                    "original_label": ent.label_
                 })
                 # spaCy doesn't provide confidence scores, so we estimate based on entity type
                 confidence_scores.append(self.estimate_ner_confidence(ent))
@@ -114,7 +137,7 @@ class AutoLabeler:
                 "labels": {
                     "entities": entities,
                     "entity_count": len(entities),
-                    "entity_types": list(set([ent["label"] for ent in entities]))
+                    "entity_types": list(set([ent["class_name"] for ent in entities]))
                 },
                 "confidence": round(float(avg_confidence), 3),
                 "model_used": "spacy_en_core_web_sm",
@@ -123,7 +146,17 @@ class AutoLabeler:
             
         except Exception as e:
             print(f"Error in NER: {e}")
-            return self.fallback_ner(text)
+            # Return empty result on error
+            return {
+                "labels": {
+                    "entities": [],
+                    "entity_count": 0,
+                    "entity_types": []
+                },
+                "confidence": 0.0,
+                "model_used": "spacy_error",
+                "timestamp": datetime.utcnow().isoformat()
+            }
     
     def analyze_sentiment(self, text: str) -> Dict[str, Any]:
         """Analyze sentiment using transformer model"""
@@ -274,43 +307,6 @@ class AutoLabeler:
             return "neutral"
     
     # Fallback methods when models are not available
-    def fallback_ner(self, text: str) -> Dict[str, Any]:
-        """Fallback NER using regex patterns for product reviews"""
-        entities = []
-        
-        # Product-specific regex patterns
-        patterns = {
-            "PRODUCT": r'\b(MacBook|iPhone|Samsung|Galaxy|iPad|AirPods|Sony|Bose|Canon|Nintendo|PlayStation|Tesla|Microsoft|Dell|HP|Lenovo|Google|Pixel)\b',
-            "BRAND": r'\b(Apple|Samsung|Sony|Bose|Canon|Nintendo|Sony|Microsoft|Dell|HP|Lenovo|Google|Tesla|Nintendo|Sony|Bose|Canon)\b',
-            "FEATURE": r'\b(battery|screen|display|processor|chip|memory|storage|camera|lens|zoom|resolution|bluetooth|wifi|charging|usb|hdmi|speaker|microphone|sensor|keyboard|trackpad|noise|cancellation|sound|quality|performance|speed|fast|slow|heavy|light|comfortable|bulky|premium|cheap|expensive|affordable|price|cost|value|quality|build|design|interface|software|hardware|updates|drift|issue|problem|bug|glitch|defect|flaw|perfect|amazing|excellent|great|good|bad|terrible|awful|disappointing|love|hate|like|dislike)\b',
-            "SPEC": r'\b(\d+[-\s]?inch|\d+GB|\d+MP|\d+K|\d+Hz|\d+W|\d+mAh|\d+TB|\d+MB|\d+GHz|\d+MHz|\d+W|\d+V|\d+A|\d+Ω|\d+°C|\d+°F|\d+mm|\d+cm|\d+in|\d+ft|\d+oz|\d+lb|\d+kg|\d+g|\d+mg|\d+ml|\d+L|\d+gal|\d+qt|\d+pt|\d+cup|\d+tbsp|\d+tsp|\d+fl\s?oz)\b',
-            "EMAIL": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            "PHONE": r'\b\d{3}-\d{3}-\d{4}\b|\b\(\d{3}\)\s*\d{3}-\d{4}\b',
-            "DATE": r'\b\d{1,2}/\d{1,2}/\d{4}\b|\b\d{4}-\d{2}-\d{2}\b',
-            "MONEY": r'\$\d+(?:,\d{3})*(?:\.\d{2})?'
-        }
-        
-        for label, pattern in patterns.items():
-            matches = re.finditer(pattern, text)
-            for match in matches:
-                entities.append({
-                    "text": match.group(),
-                    "label": label,
-                    "start": match.start(),
-                    "end": match.end(),
-                    "description": f"Regex-detected {label}"
-                })
-        
-        return {
-            "labels": {
-                "entities": entities,
-                "entity_count": len(entities),
-                "entity_types": list(set([ent["label"] for ent in entities]))
-            },
-            "confidence": 0.4,  # Lower confidence for regex-based
-            "model_used": "regex_fallback",
-            "timestamp": datetime.utcnow().isoformat()
-        }
     
     def fallback_sentiment(self, text: str) -> Dict[str, Any]:
         """Fallback sentiment analysis using product review keywords"""

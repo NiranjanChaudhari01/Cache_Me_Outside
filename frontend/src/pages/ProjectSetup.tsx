@@ -178,7 +178,7 @@ export const ProjectSetup: React.FC = () => {
                   <li>• CSV file with a 'text' column containing your text data</li>
                   <li>• JSON file with array of objects containing 'text' field</li>
                   <li>• Maximum file size: 10MB</li>
-                  <li>• Supported formats: .csv, .json</li>
+                  <li>• Supported formats: .csv, .json, .txt, .text</li>
                 </ul>
               </div>
 
@@ -189,7 +189,7 @@ export const ProjectSetup: React.FC = () => {
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                   <input
                     type="file"
-                    accept=".csv,.json"
+                    accept=".csv,.json,.txt,.text"
                     onChange={(e) => {
                       const selectedFile = e.target.files?.[0] || null;
                       console.log('File selected:', selectedFile);

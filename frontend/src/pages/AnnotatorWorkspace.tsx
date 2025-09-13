@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { taskApi, projectApi } from '../services/api';
-import { Task, Project, Entity } from '../types';
+import { Task, Project, Entity, TaskStatus } from '../types';
 
 interface TrainingStats {
   total_corrections: number;
@@ -79,6 +79,15 @@ export const AnnotatorWorkspace: React.FC = () => {
     setSaving(true);
     try {
       await taskApi.review(currentTask.id, currentTask.auto_labels, annotatorId);
+      
+      // Update the current task in local state with the accepted auto_labels as final_labels
+      const updatedTasks = tasks.map(task => 
+        task.id === currentTask.id 
+          ? { ...task, final_labels: currentTask.auto_labels, status: TaskStatus.REVIEWED }
+          : task
+      );
+      setTasks(updatedTasks);
+      
       moveToNextTask();
     } catch (error) {
       console.error('Error accepting labels:', error);
@@ -93,6 +102,28 @@ export const AnnotatorWorkspace: React.FC = () => {
     setSaving(true);
     try {
       const response = await taskApi.review(currentTask.id, editedLabels, annotatorId);
+      
+      // Update the current task in local state with the saved final_labels
+      const updatedTasks = tasks.map(task => 
+        task.id === currentTask.id 
+          ? { ...task, final_labels: editedLabels, status: TaskStatus.REVIEWED }
+          : task
+      );
+      setTasks(updatedTasks);
+      
+      console.log('✅ Task updated in local state:', {
+        taskId: currentTask.id,
+        final_labels: editedLabels,
+        status: TaskStatus.REVIEWED
+      });
+      
+      // Additional debugging for export verification
+      console.log('🔍 Export verification - Current task state:', {
+        taskId: currentTask.id,
+        auto_labels: currentTask.auto_labels,
+        edited_labels: editedLabels,
+        will_be_exported: 'YES - Status will be REVIEWED'
+      });
       
       // Check if labels were changed (for learning feedback)
       const labelsChanged = JSON.stringify(currentTask.auto_labels) !== JSON.stringify(editedLabels);
@@ -150,11 +181,62 @@ export const AnnotatorWorkspace: React.FC = () => {
     }
   };
 
+  const handleRemoveEntity = (entityIndex: number) => {
+    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.entities || [];
+    if (!currentEntities) return;
+    
+    const updatedEntities = currentEntities.filter((_: any, index: number) => index !== entityIndex);
+    
+    const baseLabels = editedLabels || currentTask?.auto_labels || {};
+    const updatedLabels = {
+      ...baseLabels,
+      entities: updatedEntities,
+      entity_count: updatedEntities.length,
+      entity_types: Array.from(new Set(updatedEntities.map((ent: any) => ent.class_name)))
+    };
+    
+    setEditedLabels(updatedLabels);
+  };
+
+  const handleAddEntity = () => {
+    const newEntity = {
+      class_name: 'PER', // Default to person
+      start_index: 0,
+      end_index: 0,
+      text: 'New Entity',
+      original_label: 'PERSON'
+    };
+    
+    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.entities || [];
+    const updatedEntities = [...currentEntities, newEntity];
+    
+    const baseLabels = editedLabels || currentTask?.auto_labels || {};
+    const updatedLabels = {
+      ...baseLabels,
+      entities: updatedEntities,
+      entity_count: updatedEntities.length,
+      entity_types: Array.from(new Set(updatedEntities.map((ent: any) => ent.class_name)))
+    };
+    
+    setEditedLabels(updatedLabels);
+  };
+
   const handleExportData = async () => {
     if (!projectId) return;
     
     try {
       const data = await projectApi.exportData(Number(projectId));
+      
+      // Debug: Log what's being exported
+      console.log('📤 Export data received:', {
+        count: data.count,
+        tasks: data.data.map((task: any) => ({
+          id: task.id,
+          text: task.text.substring(0, 30) + '...',
+          final_labels: task.final_labels,
+          status: task.status
+        }))
+      });
       
       // Create and download JSON file
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -175,21 +257,34 @@ export const AnnotatorWorkspace: React.FC = () => {
     }
   };
 
-  const renderEntityHighlights = (text: string, entities: Entity[]) => {
+  const renderEntityHighlights = (text: string, entities: any[]) => {
     if (!entities || entities.length === 0) {
       return <span>{text}</span>;
     }
 
-    const sortedEntities = [...entities].sort((a, b) => a.start - b.start);
+    console.log('🎯 renderEntityHighlights called with:', { text: text.substring(0, 50) + '...', entities });
+
+    // Handle different entity formats from auto-labeler
+    const sortedEntities = [...entities].sort((a, b) => {
+      const startA = a.start_index || a.start || 0;
+      const startB = b.start_index || b.start || 0;
+      return startA - startB;
+    });
+    
     const parts = [];
     let lastEnd = 0;
 
     sortedEntities.forEach((entity, index) => {
+      const start = entity.start_index || entity.start || 0;
+      const end = entity.end_index || entity.end || start + (entity.text?.length || 0);
+      const entityText = entity.text || '';
+      const entityLabel = entity.class_name || entity.label || 'ENTITY';
+
       // Add text before entity
-      if (entity.start > lastEnd) {
+      if (start > lastEnd) {
         parts.push(
           <span key={`text-${index}`}>
-            {text.substring(lastEnd, entity.start)}
+            {text.substring(lastEnd, start)}
           </span>
         );
       }
@@ -198,14 +293,14 @@ export const AnnotatorWorkspace: React.FC = () => {
       parts.push(
         <span
           key={`entity-${index}`}
-          className={`entity-highlight entity-${entity.label} cursor-pointer`}
-          title={`${entity.label}: ${entity.description || ''}`}
+          className={`entity-highlight entity-${entityLabel} cursor-pointer bg-yellow-200 px-1 rounded`}
+          title={`${entityLabel}: ${entityText}`}
         >
-          {entity.text}
+          {entityText}
         </span>
       );
 
-      lastEnd = entity.end;
+      lastEnd = end;
     });
 
     // Add remaining text
@@ -218,6 +313,54 @@ export const AnnotatorWorkspace: React.FC = () => {
     }
 
     return <>{parts}</>;
+  };
+
+  const renderFullTextWithHighlight = (fullText: string, textToAnnotate: string, entities?: any[]) => {
+    console.log('🔍 renderFullTextWithHighlight called:', { fullText, textToAnnotate, entities });
+    console.log('📏 Text lengths:', { fullTextLength: fullText?.length, textToAnnotateLength: textToAnnotate?.length });
+    
+    if (!fullText || !textToAnnotate) {
+      return <span>{textToAnnotate || fullText}</span>;
+    }
+
+    // If fullText and textToAnnotate are the same, show the full text with entity highlighting
+    if (fullText === textToAnnotate) {
+      console.log('📝 Full text and annotation target are the same - showing full text with entities');
+      return entities ? renderEntityHighlights(fullText, entities) : <span>{fullText}</span>;
+    }
+
+    // Find the text to annotate within the full text
+    const startIndex = fullText.indexOf(textToAnnotate);
+    console.log('🔍 Start index:', startIndex);
+    
+    if (startIndex === -1) {
+      // If not found as exact substring, show the full text and highlight entities within it
+      console.log('⚠️ Annotation target not found as exact substring - showing full text with entity highlights');
+      return (
+        <span>
+          {entities ? renderEntityHighlights(fullText, entities) : fullText}
+          <div className="mt-2 text-xs text-blue-600 bg-blue-50 p-2 rounded">
+            <strong>Note:</strong> Target "{textToAnnotate}" not found as exact substring in full text. Showing full text with detected entities.
+          </div>
+        </span>
+      );
+    }
+
+    const endIndex = startIndex + textToAnnotate.length;
+    const beforeText = fullText.substring(0, startIndex);
+    const afterText = fullText.substring(endIndex);
+
+    console.log('✅ Highlighting text:', { beforeText, textToAnnotate, afterText });
+
+    return (
+      <span>
+        {beforeText}
+        <span className="bg-orange-200 border-2 border-orange-500 px-2 py-1 rounded font-semibold text-orange-900 shadow-md">
+          {entities ? renderEntityHighlights(textToAnnotate, entities) : textToAnnotate}
+        </span>
+        {afterText}
+      </span>
+    );
   };
 
   const getConfidenceColor = (confidence: number) => {
@@ -431,13 +574,63 @@ export const AnnotatorWorkspace: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Text Content */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Text to Annotate</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            Text to Annotate
+            {currentTask && (
+              <span className="ml-2 text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                ID: {currentTask.id}
+              </span>
+            )}
+          </h2>
           <div className="bg-gray-50 rounded-lg p-4 mb-4">
             <div className="text-gray-900 leading-relaxed">
-              {currentTask && project.task_type === 'ner' && currentTask.auto_labels?.entities ? 
-                renderEntityHighlights(currentTask.text, currentTask.auto_labels.entities) :
+              {currentTask && project.task_type === 'ner' ? (
+                <div className="space-y-2">
+                  {/* Full text with highlighted portion */}
+                  <div className="bg-gray-50 border border-gray-200 p-4 rounded">
+                    <div className="text-sm text-gray-600 font-medium mb-2">Full Text with Highlighted Annotation Target:</div>
+                    <div className="text-gray-900 leading-relaxed whitespace-pre-wrap break-words">
+                      {(() => {
+                        console.log('🔍 Current task data:', {
+                          taskId: currentTask.id,
+                          taskText: currentTask.text,
+                          taskMetadata: currentTask.task_metadata,
+                          fullTextFromMetadata: currentTask.task_metadata?.full_text,
+                          finalFullText: currentTask.task_metadata?.full_text || currentTask.text
+                        });
+                        const fullText = currentTask.task_metadata?.full_text || currentTask.text;
+                        const textToAnnotate = currentTask.text;
+                        
+                        console.log('🔍 Function parameters:', {
+                          fullText,
+                          textToAnnotate,
+                          areEqual: fullText === textToAnnotate,
+                          fullTextLength: fullText?.length,
+                          textToAnnotateLength: textToAnnotate?.length
+                        });
+                        
+                        return renderFullTextWithHighlight(
+                          fullText,
+                          textToAnnotate,
+                          currentTask.auto_labels?.entities
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  
+                  {/* Show task metadata if available */}
+                  {currentTask.task_metadata && (
+                    <div className="text-xs text-gray-500 mt-2">
+                      <div>Source: {currentTask.task_metadata.source_file || 'Unknown'}</div>
+                      {currentTask.task_metadata.sentence_index !== undefined && (
+                        <div>Sentence {currentTask.task_metadata.sentence_index + 1} of {currentTask.task_metadata.total_sentences || '?'}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
                 currentTask?.text || 'No text available'
-              }
+              )}
             </div>
           </div>
 
@@ -470,22 +663,39 @@ export const AnnotatorWorkspace: React.FC = () => {
           
           {/* Labels Display */}
           <div className="space-y-4 mb-6">
-            {project.task_type === 'ner' && currentTask?.auto_labels?.entities && (
+            {project.task_type === 'ner' && currentTask?.auto_labels && (
               <div>
-                <h3 className="font-medium text-gray-900 mb-2">Named Entities</h3>
-                <div className="space-y-2">
-                  {currentTask.auto_labels.entities.map((entity: Entity, index: number) => (
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium text-gray-900">Named Entities</h3>
+                  <button
+                    onClick={handleAddEntity}
+                    className="text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded transition-colors"
+                  >
+                    + Add Entity
+                  </button>
+                </div>
+                {(editedLabels?.entities || currentTask.auto_labels.entities) && (editedLabels?.entities?.length > 0 || currentTask.auto_labels.entities?.length > 0) ? (
+                  <div className="space-y-2">
+                  {(editedLabels?.entities || currentTask.auto_labels.entities || []).map((entity: any, index: number) => (
                     <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <div>
-                        <span className={`entity-highlight entity-${entity.label}`}>
+                        <span className={`entity-highlight entity-${entity.class_name}`}>
                           {entity.text}
                         </span>
-                        <span className="ml-2 text-sm text-gray-600">({entity.label})</span>
+                        <span className="ml-2 text-sm text-gray-600">({entity.class_name})</span>
                       </div>
-                      <button className="text-red-500 hover:text-red-700 text-sm">Remove</button>
+                      <button 
+                        onClick={() => handleRemoveEntity(index)}
+                        className="text-red-500 hover:text-red-700 text-sm hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                      >
+                        Remove
+                      </button>
                     </div>
                   ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-500 italic">No entities detected</div>
+                )}
               </div>
             )}
 
@@ -517,9 +727,6 @@ export const AnnotatorWorkspace: React.FC = () => {
               <div>
                 <h3 className="font-medium text-gray-900 mb-2">Classification</h3>
                 <div className="p-3 bg-gray-50 rounded">
-                  {/* Debug Info */}
-                  {console.log('Current task auto_labels:', currentTask.auto_labels)}
-                  
                   {/* Main Category Selection */}
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">

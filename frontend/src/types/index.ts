@@ -14,6 +14,7 @@ export interface Task {
   auto_labels?: any;
   confidence_score?: number;
   final_labels?: any;
+  task_metadata?: any;
   status: TaskStatus;
   created_at: string;
   updated_at: string;

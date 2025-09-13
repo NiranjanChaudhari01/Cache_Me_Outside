@@ -67,6 +67,27 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleExportNerCsv = async (projectId: number) => {
+    try {
+      const blob = await projectApi.exportNerCsv(projectId);
+      
+      // Create and download CSV file
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ner_results_project_${projectId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert(`✅ Exported NER CSV for project ${projectId}!`);
+    } catch (error) {
+      console.error('Error exporting NER CSV:', error);
+      alert('❌ Error exporting NER CSV. Please try again.');
+    }
+  };
+
   const getStatusColor = (completionRate: number) => {
     if (completionRate >= 80) return 'text-green-600 bg-green-100';
     if (completionRate >= 50) return 'text-yellow-600 bg-yellow-100';
@@ -199,12 +220,20 @@ export const Dashboard: React.FC = () => {
                         Client View
                       </Link>
                     </div>
-                    <button
-                      onClick={() => handleExportProject(project.id)}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
-                    >
-                      📥 Export Data
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleExportProject(project.id)}
+                        className="w-full bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                      >
+                        📥 Export Data
+                      </button>
+                      <button
+                        onClick={() => handleExportNerCsv(project.id)}
+                        className="w-full bg-blue-500 hover:bg-blue-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                      >
+                        🏷️ Export NER CSV
+                      </button>
+                    </div>
                   </div>
                 </div>
 
