@@ -62,6 +62,7 @@ export interface ProjectStats {
   in_review: number;
   reviewed: number;
   approved: number;
+  rejected: number;
   completion_rate: number;
   average_confidence: number;
 }

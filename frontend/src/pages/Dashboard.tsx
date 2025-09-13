@@ -45,6 +45,28 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleExportProject = async (projectId: number) => {
+    try {
+      const data = await projectApi.exportData(projectId);
+      
+      // Create and download JSON file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `annotated_data_project_${projectId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert(`✅ Exported ${data.count} annotated tasks for project ${projectId}!`);
+    } catch (error) {
+      console.error('Error exporting data:', error);
+      alert('❌ Error exporting data. Please try again.');
+    }
+  };
+
   const getStatusColor = (completionRate: number) => {
     if (completionRate >= 80) return 'text-green-600 bg-green-100';
     if (completionRate >= 50) return 'text-yellow-600 bg-yellow-100';
@@ -133,16 +155,16 @@ export const Dashboard: React.FC = () => {
                         <span className="font-medium">{stats.total_tasks}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">In Review:</span>
-                        <span className="font-medium">{stats.in_review}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Reviewed:</span>
-                        <span className="font-medium">{stats.reviewed}</span>
+                        <span className="text-gray-600">Pending Client Review:</span>
+                        <span className="font-medium text-yellow-600">{stats.reviewed}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Approved:</span>
-                        <span className="font-medium">{stats.approved}</span>
+                        <span className="font-medium text-green-600">{stats.approved}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Rejected:</span>
+                        <span className="font-medium text-red-600">{stats.rejected}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Avg Confidence:</span>
@@ -162,19 +184,27 @@ export const Dashboard: React.FC = () => {
                   )}
 
                   {/* Action Buttons */}
-                  <div className="flex space-x-2">
-                    <Link
-                      to={`/annotate/${project.id}`}
-                      className="flex-1 bg-primary-500 hover:bg-primary-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                  <div className="space-y-2">
+                    <div className="flex space-x-2">
+                      <Link
+                        to={`/annotate/${project.id}`}
+                        className="flex-1 bg-primary-500 hover:bg-primary-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                      >
+                        Annotate
+                      </Link>
+                      <Link
+                        to={`/client/${project.id}`}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                      >
+                        Client View
+                      </Link>
+                    </div>
+                    <button
+                      onClick={() => handleExportProject(project.id)}
+                      className="w-full bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
                     >
-                      Annotate
-                    </Link>
-                    <Link
-                      to={`/client/${project.id}`}
-                      className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-center py-2 px-4 rounded-md text-sm font-medium transition-colors"
-                    >
-                      Client View
-                    </Link>
+                      📥 Export Data
+                    </button>
                   </div>
                 </div>
 

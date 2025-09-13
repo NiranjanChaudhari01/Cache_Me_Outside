@@ -47,7 +47,7 @@ export const AnnotatorWorkspace: React.FC = () => {
       
       setProject(projectData);
       setTasks(tasksData);
-      setEditedLabels(tasksData[0]?.auto_labels || null);
+      setEditedLabels(tasksData[0]?.auto_labels ? { ...tasksData[0].auto_labels } : null);
       
       // Load training stats
       loadTrainingStats();
@@ -143,10 +143,35 @@ export const AnnotatorWorkspace: React.FC = () => {
     if (currentTaskIndex < tasks.length - 1) {
       const nextIndex = currentTaskIndex + 1;
       setCurrentTaskIndex(nextIndex);
-      setEditedLabels(tasks[nextIndex]?.auto_labels || null);
+      setEditedLabels(tasks[nextIndex]?.auto_labels ? { ...tasks[nextIndex].auto_labels } : null);
     } else {
       // Load more tasks or show completion message
       loadProjectAndTasks();
+    }
+  };
+
+  const handleExportData = async () => {
+    if (!projectId) return;
+    
+    try {
+      const data = await projectApi.exportData(Number(projectId));
+      
+      // Create and download JSON file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `annotated_data_project_${projectId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      console.log('✅ Data exported successfully!', data);
+      alert(`✅ Exported ${data.count} annotated tasks!`);
+    } catch (error) {
+      console.error('Error exporting data:', error);
+      alert('❌ Error exporting data. Please try again.');
     }
   };
 
@@ -209,13 +234,28 @@ export const AnnotatorWorkspace: React.FC = () => {
     );
   }
 
-  if (!project || tasks.length === 0) {
+  if (!project || tasks.length === 0 || !currentTask) {
     return (
       <div className="text-center py-12">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">No Tasks Available</h2>
-        <p className="text-gray-600">All tasks have been completed or there are no tasks to review.</p>
-        <div className="mt-4 text-xs text-gray-300">
-          Debug: projectId={projectId}, project={project ? 'found' : 'null'}, tasks={tasks.length}
+        <p className="text-gray-600 mb-6">All tasks have been completed or there are no tasks to review.</p>
+        
+        {project && (
+          <div className="space-y-4">
+            <button
+              onClick={handleExportData}
+              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-lg font-medium"
+            >
+              📥 Export Annotated Data
+            </button>
+            <p className="text-sm text-gray-500">
+              Download all completed annotations as JSON
+            </p>
+          </div>
+        )}
+        
+        <div className="mt-8 text-xs text-gray-300">
+          Debug: projectId={projectId}, project={project ? 'found' : 'null'}, tasks={tasks.length}, currentTask={currentTask ? 'found' : 'null'}
         </div>
       </div>
     );
@@ -230,11 +270,19 @@ export const AnnotatorWorkspace: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
             <p className="text-gray-600">Annotator Workspace - {project.task_type.toUpperCase()}</p>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-gray-600">Progress</div>
-            <div className="text-lg font-semibold text-primary-600">
-              {currentTaskIndex + 1} / {tasks.length}
+          <div className="text-right flex items-center space-x-4">
+            <div>
+              <div className="text-sm text-gray-600">Progress</div>
+              <div className="text-lg font-semibold text-primary-600">
+                {currentTaskIndex + 1} / {tasks.length}
+              </div>
             </div>
+            <button
+              onClick={handleExportData}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+            >
+              📥 Export Data
+            </button>
           </div>
         </div>
         
@@ -386,9 +434,9 @@ export const AnnotatorWorkspace: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Text to Annotate</h2>
           <div className="bg-gray-50 rounded-lg p-4 mb-4">
             <div className="text-gray-900 leading-relaxed">
-              {project.task_type === 'ner' && currentTask.auto_labels?.entities ? 
+              {currentTask && project.task_type === 'ner' && currentTask.auto_labels?.entities ? 
                 renderEntityHighlights(currentTask.text, currentTask.auto_labels.entities) :
-                currentTask.text
+                currentTask?.text || 'No text available'
               }
             </div>
           </div>
@@ -396,10 +444,10 @@ export const AnnotatorWorkspace: React.FC = () => {
           {/* Confidence Score */}
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-600">Confidence:</span>
-            <span className={`px-2 py-1 rounded text-sm font-medium ${getConfidenceColor(currentTask.confidence_score || 0)}`}>
-              {((currentTask.confidence_score || 0) * 100).toFixed(0)}%
+            <span className={`px-2 py-1 rounded text-sm font-medium ${getConfidenceColor(currentTask?.confidence_score || 0)}`}>
+              {((currentTask?.confidence_score || 0) * 100).toFixed(0)}%
             </span>
-            {currentTask.auto_labels?.confidence_adjusted && (
+            {currentTask?.auto_labels?.confidence_adjusted && (
               <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
                 ✨ Adjusted by learning
               </span>
@@ -407,10 +455,10 @@ export const AnnotatorWorkspace: React.FC = () => {
           </div>
           
           {/* Learning Adjustment Details */}
-          {currentTask.auto_labels?.confidence_adjusted && (
+          {currentTask?.auto_labels?.confidence_adjusted && (
             <div className="mt-2 text-xs text-blue-600">
               Original: {((currentTask.auto_labels.original_confidence || 0) * 100).toFixed(0)}% → 
-              Adjusted: {((currentTask.confidence_score || 0) * 100).toFixed(0)}% 
+              Adjusted: {((currentTask?.confidence_score || 0) * 100).toFixed(0)}% 
               (×{currentTask.auto_labels.adjustment_factor})
             </div>
           )}
@@ -422,7 +470,7 @@ export const AnnotatorWorkspace: React.FC = () => {
           
           {/* Labels Display */}
           <div className="space-y-4 mb-6">
-            {project.task_type === 'ner' && currentTask.auto_labels?.entities && (
+            {project.task_type === 'ner' && currentTask?.auto_labels?.entities && (
               <div>
                 <h3 className="font-medium text-gray-900 mb-2">Named Entities</h3>
                 <div className="space-y-2">
@@ -441,7 +489,7 @@ export const AnnotatorWorkspace: React.FC = () => {
               </div>
             )}
 
-            {project.task_type === 'sentiment' && currentTask.auto_labels?.sentiment && (
+            {project.task_type === 'sentiment' && currentTask?.auto_labels?.sentiment && (
               <div>
                 <h3 className="font-medium text-gray-900 mb-2">Sentiment Analysis</h3>
                 <div className="p-3 bg-gray-50 rounded">
@@ -465,17 +513,61 @@ export const AnnotatorWorkspace: React.FC = () => {
               </div>
             )}
 
-            {project.task_type === 'classification' && currentTask.auto_labels?.category && (
+            {project.task_type === 'classification' && currentTask?.auto_labels?.category && (
               <div>
                 <h3 className="font-medium text-gray-900 mb-2">Classification</h3>
                 <div className="p-3 bg-gray-50 rounded">
-                  <div className="font-medium mb-2">{currentTask.auto_labels.category}</div>
+                  {/* Main Category Selection */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Primary Category:
+                    </label>
+                    <select
+                      value={editedLabels?.category || currentTask.auto_labels.category}
+                      onChange={(e) => setEditedLabels({
+                        ...editedLabels,
+                        category: e.target.value
+                      })}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="business">Business</option>
+                      <option value="technology">Technology</option>
+                      <option value="sports">Sports</option>
+                      <option value="entertainment">Entertainment</option>
+                      <option value="politics">Politics</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  
+                  {/* Confidence Scores */}
                   {currentTask.auto_labels.scores && (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Confidence Scores:
+                      </label>
                       {Object.entries(currentTask.auto_labels.scores).map(([category, score]) => (
-                        <div key={category} className="flex justify-between text-sm">
-                          <span>{category}:</span>
-                          <span>{((score as number) * 100).toFixed(0)}%</span>
+                        <div key={category} className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600 capitalize">{category}:</span>
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={editedLabels?.scores?.[category] || score}
+                              onChange={(e) => setEditedLabels({
+                                ...editedLabels,
+                                scores: {
+                                  ...editedLabels?.scores,
+                                  [category]: parseFloat(e.target.value)
+                                }
+                              })}
+                              className="w-20"
+                            />
+                            <span className="text-sm w-12 text-right">
+                              {((editedLabels?.scores?.[category] || score) * 100).toFixed(0)}%
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -519,9 +611,9 @@ export const AnnotatorWorkspace: React.FC = () => {
               <span className="text-sm font-medium text-yellow-800">Learning Impact</span>
             </div>
             <div className="mt-2 text-xs text-yellow-700">
-              {currentTask.confidence_score && currentTask.confidence_score < 0.6 ? (
+              {currentTask?.confidence_score && currentTask.confidence_score < 0.6 ? (
                 <span>This low-confidence task will help improve the model when corrected</span>
-              ) : currentTask.confidence_score && currentTask.confidence_score < 0.8 ? (
+              ) : currentTask?.confidence_score && currentTask.confidence_score < 0.8 ? (
                 <span>This medium-confidence task provides valuable learning data</span>
               ) : (
                 <span>This high-confidence task helps validate model accuracy</span>
@@ -531,8 +623,8 @@ export const AnnotatorWorkspace: React.FC = () => {
 
           {/* Model Info */}
           <div className="mt-6 pt-4 border-t text-xs text-gray-500">
-            <div>Model: {currentTask.auto_labels?.model_used || 'Unknown'}</div>
-            <div>Generated: {currentTask.auto_labels?.timestamp ? 
+            <div>Model: {currentTask?.auto_labels?.model_used || 'Unknown'}</div>
+            <div>Generated: {currentTask?.auto_labels?.timestamp ? 
               new Date(currentTask.auto_labels.timestamp).toLocaleString() : 'Unknown'}</div>
             {trainingStats && (
               <div className="mt-2 text-blue-600">

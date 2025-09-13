@@ -25,7 +25,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # React frontend
+    allow_origins=["*"],  # Allow any origin for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -319,6 +319,11 @@ async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
         Task.status == TaskStatus.CLIENT_APPROVED
     ).count()
     
+    rejected = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.status == TaskStatus.CLIENT_REJECTED
+    ).count()
+    
     # Calculate average confidence
     avg_confidence = db.query(Task).filter(
         Task.project_id == project_id,
@@ -327,12 +332,16 @@ async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
     
     avg_conf = sum([c[0] for c in avg_confidence]) / len(avg_confidence) if avg_confidence else 0
     
+    # Completion rate includes both approved and rejected tasks (client decisions)
+    completed_by_client = approved + rejected
+    
     return {
         "total_tasks": total_tasks,
         "in_review": in_review,  # Changed from auto_labeled to in_review
         "reviewed": reviewed,
         "approved": approved,
-        "completion_rate": (approved / total_tasks * 100) if total_tasks > 0 else 0,
+        "rejected": rejected,
+        "completion_rate": (completed_by_client / total_tasks * 100) if total_tasks > 0 else 0,
         "average_confidence": round(avg_conf, 2)
     }
 

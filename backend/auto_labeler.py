@@ -191,12 +191,19 @@ class AutoLabeler:
         
         # Define keywords for each category
         category_keywords = {
-            "business": ["business", "company", "market", "finance", "economy", "profit", "revenue", "investment"],
-            "technology": ["technology", "software", "AI", "machine learning", "computer", "digital", "tech", "innovation"],
-            "sports": ["sports", "game", "team", "player", "match", "championship", "football", "basketball"],
-            "entertainment": ["movie", "music", "celebrity", "entertainment", "film", "show", "actor", "artist"],
-            "politics": ["politics", "government", "election", "president", "policy", "vote", "political", "congress"],
-            "other": ["general", "news", "information", "update", "report"]
+            "business": ["business", "company", "market", "finance", "economy", "profit", "revenue", "investment", 
+                        "breach", "customers", "data", "security", "equifax", "financial", "corporate", "banking",
+                        "stock", "trading", "merger", "acquisition", "ceo", "executive", "board", "shareholder"],
+            "technology": ["technology", "software", "AI", "machine learning", "computer", "digital", "tech", "innovation",
+                          "cybersecurity", "hack", "breach", "data", "privacy", "encryption", "algorithm", "programming",
+                          "internet", "online", "app", "platform", "system", "network", "database", "cloud"],
+            "sports": ["sports", "game", "team", "player", "match", "championship", "football", "basketball", "soccer",
+                      "baseball", "tennis", "golf", "olympics", "tournament", "league", "coach", "stadium"],
+            "entertainment": ["movie", "music", "celebrity", "entertainment", "film", "show", "actor", "artist", "concert",
+                             "theater", "broadway", "album", "song", "director", "producer", "awards", "festival"],
+            "politics": ["politics", "government", "election", "president", "policy", "vote", "political", "congress",
+                        "senate", "democrat", "republican", "campaign", "candidate", "legislation", "law", "court"],
+            "other": ["general", "news", "information", "update", "report", "story", "article", "announcement"]
         }
         
         scores = {}

@@ -220,16 +220,16 @@ export const ClientPortal: React.FC = () => {
             <div className="text-sm text-gray-600">Total Tasks</div>
           </div>
           <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="text-2xl font-bold text-yellow-600">{stats.in_review}</div>
-            <div className="text-sm text-gray-600">In Review</div>
+            <div className="text-2xl font-bold text-yellow-600">{stats.reviewed}</div>
+            <div className="text-sm text-gray-600">Pending Client Review</div>
           </div>
           <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="text-2xl font-bold text-green-600">{stats.reviewed}</div>
-            <div className="text-sm text-gray-600">Reviewed</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="text-2xl font-bold text-blue-600">{stats.approved}</div>
+            <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
             <div className="text-sm text-gray-600">Approved</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
+            <div className="text-sm text-gray-600">Rejected</div>
           </div>
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="text-2xl font-bold text-purple-600">{stats.completion_rate.toFixed(0)}%</div>
