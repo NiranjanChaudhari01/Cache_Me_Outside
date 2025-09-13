@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Confidence score indicators */
+.confidence-high {
+  @apply bg-green-100 border-green-300 text-green-800;
+}
+
+.confidence-medium {
+  @apply bg-yellow-100 border-yellow-300 text-yellow-800;
+}
+
+.confidence-low {
+  @apply bg-red-100 border-red-300 text-red-800;
+}
+
+/* Entity highlighting */
+.entity-highlight {
+  @apply px-1 py-0.5 rounded text-sm font-medium;
+}
+
+.entity-PERSON {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.entity-ORG {
+  @apply bg-purple-100 text-purple-800;
+}
+
+.entity-GPE {
+  @apply bg-green-100 text-green-800;
+}
+
+.entity-DATE {
+  @apply bg-orange-100 text-orange-800;
+}
+
+.entity-MONEY {
+  @apply bg-emerald-100 text-emerald-800;
+}
