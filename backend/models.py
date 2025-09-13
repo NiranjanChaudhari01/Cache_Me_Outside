@@ -47,6 +47,9 @@ class Task(Base):
     auto_labels = Column(JSON)  # {"labels": [...], "entities": [...]}
     confidence_score = Column(Float)
     
+    # Additional metadata (for Amazon dataset)
+    task_metadata = Column(JSON)  # {"product_title": "...", "product_category": "...", "star_rating": 5}
+    
     # Human review results
     final_labels = Column(JSON)
     annotator_id = Column(Integer, ForeignKey("annotators.id"))

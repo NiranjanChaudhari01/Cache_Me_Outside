@@ -39,10 +39,12 @@ export const ProjectSetup: React.FC = () => {
     
     setLoading(true);
     try {
-      await projectApi.uploadDataset(createdProject.id, file);
+      const result = await projectApi.uploadDataset(createdProject.id, file);
+      console.log('Upload successful:', result);
       setStep(3);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading dataset:', error);
+      console.error('Error details:', error.response?.data);
     } finally {
       setLoading(false);
     }
@@ -188,7 +190,19 @@ export const ProjectSetup: React.FC = () => {
                   <input
                     type="file"
                     accept=".csv,.json"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      const selectedFile = e.target.files?.[0] || null;
+                      console.log('File selected:', selectedFile);
+                      if (selectedFile) {
+                        console.log('File details:', {
+                          name: selectedFile.name,
+                          size: selectedFile.size,
+                          type: selectedFile.type,
+                          lastModified: selectedFile.lastModified
+                        });
+                      }
+                      setFile(selectedFile);
+                    }}
                     className="hidden"
                     id="file-upload"
                   />

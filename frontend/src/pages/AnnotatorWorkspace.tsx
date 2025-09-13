@@ -517,24 +517,28 @@ export const AnnotatorWorkspace: React.FC = () => {
               <div>
                 <h3 className="font-medium text-gray-900 mb-2">Classification</h3>
                 <div className="p-3 bg-gray-50 rounded">
+                  {/* Debug Info */}
+                  {console.log('Current task auto_labels:', currentTask.auto_labels)}
+                  
                   {/* Main Category Selection */}
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Primary Category:
                     </label>
                     <select
-                      value={editedLabels?.category || currentTask.auto_labels.category}
+                      value={editedLabels?.category || currentTask.auto_labels?.category || 'electronics'}
                       onChange={(e) => setEditedLabels({
                         ...editedLabels,
                         category: e.target.value
                       })}
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="business">Business</option>
-                      <option value="technology">Technology</option>
-                      <option value="sports">Sports</option>
-                      <option value="entertainment">Entertainment</option>
-                      <option value="politics">Politics</option>
+                      <option value="electronics">Electronics</option>
+                      <option value="beauty">Beauty</option>
+                      <option value="home">Home</option>
+                      <option value="clothing">Clothing</option>
+                      <option value="books">Books</option>
+                      <option value="automotive">Automotive</option>
                       <option value="other">Other</option>
                     </select>
                   </div>

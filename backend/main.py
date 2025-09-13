@@ -1,5 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
@@ -34,6 +36,19 @@ app.add_middleware(
 # Initialize components
 auto_labeler = AutoLabeler()
 manager = ConnectionManager()
+
+# Exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"=== VALIDATION ERROR ===")
+    print(f"Request URL: {request.url}")
+    print(f"Request method: {request.method}")
+    print(f"Validation error: {exc.errors()}")
+    print(f"Request body: {exc.body}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()}
+    )
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -78,33 +93,83 @@ async def upload_dataset(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    print(f"=== UPLOAD DEBUG ===")
+    print(f"Project ID: {project_id}")
+    print(f"File object: {file}")
+    print(f"File filename: {file.filename if file else 'None'}")
+    print(f"File content type: {file.content_type if file else 'None'}")
+    print(f"File size: {file.size if hasattr(file, 'size') else 'Unknown'}")
+    
     # Verify project exists
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
+        print(f"Project {project_id} not found")
         raise HTTPException(status_code=404, detail="Project not found")
+    else:
+        print(f"Project found: {project.name}")
     
     # Read uploaded file
     content = await file.read()
+    
+    # Check if file is empty
+    if len(content) == 0:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty")
+    
+    # Check file size (limit to 10MB)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="File too large (max 10MB)")
     
     try:
         # Parse CSV/JSON data
         if file.filename.endswith('.csv'):
             df = pd.read_csv(StringIO(content.decode('utf-8')))
-            texts = df['text'].tolist() if 'text' in df.columns else df.iloc[:, 0].tolist()
+            
+            # Handle Amazon dataset format - use review_body as text
+            if 'review_body' in df.columns:
+                texts = df['review_body'].dropna().tolist()
+                # Store additional metadata for context
+                metadata = {
+                    'product_titles': df['product_title'].tolist() if 'product_title' in df.columns else [],
+                    'product_categories': df['product_category'].tolist() if 'product_category' in df.columns else [],
+                    'star_ratings': df['star_rating'].tolist() if 'star_rating' in df.columns else [],
+                    'review_headlines': df['review_headline'].tolist() if 'review_headline' in df.columns else []
+                }
+            elif 'text' in df.columns:
+                texts = df['text'].tolist()
+                metadata = {}
+            else:
+                # Fallback to first column
+                texts = df.iloc[:, 0].tolist()
+                metadata = {}
+                
         elif file.filename.endswith('.json'):
             data = json.loads(content.decode('utf-8'))
             texts = [item['text'] for item in data] if isinstance(data, list) else [data['text']]
+            metadata = {}
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
         
         # Create tasks
         tasks_created = 0
-        for text in texts:
+        for i, text in enumerate(texts):
             if text and len(text.strip()) > 0:
+                # Include metadata if available
+                task_metadata = {}
+                if metadata and i < len(texts):
+                    if 'product_titles' in metadata and i < len(metadata['product_titles']):
+                        task_metadata['product_title'] = metadata['product_titles'][i]
+                    if 'product_categories' in metadata and i < len(metadata['product_categories']):
+                        task_metadata['product_category'] = metadata['product_categories'][i]
+                    if 'star_ratings' in metadata and i < len(metadata['star_ratings']):
+                        task_metadata['star_rating'] = metadata['star_ratings'][i]
+                    if 'review_headlines' in metadata and i < len(metadata['review_headlines']):
+                        task_metadata['review_headline'] = metadata['review_headlines'][i]
+                
                 task = Task(
                     project_id=project_id,
                     text=text.strip(),
-                    status=TaskStatus.UPLOADED
+                    status=TaskStatus.UPLOADED,
+                    task_metadata=task_metadata if task_metadata else None
                 )
                 db.add(task)
                 tasks_created += 1
@@ -142,13 +207,32 @@ async def auto_label_tasks(
     labeled_count = 0
     for task in tasks:
         try:
-            # Run auto-labeling
-            result = auto_labeler.label_text(task.text, request.task_type)
+            # Use metadata hints for better classification
+            metadata_hints = {}
+            if task.task_metadata:
+                if 'product_category' in task.task_metadata:
+                    # Map Amazon categories to our classification categories
+                    amazon_to_our_category = {
+                        'Beauty': 'beauty',
+                        'Electronics': 'electronics', 
+                        'Home': 'home',
+                        'Clothing': 'clothing',
+                        'Books': 'books',
+                        'Automotive': 'automotive'
+                    }
+                    amazon_category = task.task_metadata['product_category']
+                    if amazon_category in amazon_to_our_category:
+                        metadata_hints['suggested_category'] = amazon_to_our_category[amazon_category]
+            
+            # Run auto-labeling with hints
+            result = auto_labeler.label_text(task.text, request.task_type, metadata_hints)
             
             # Update task - ALL tasks go to annotator UI regardless of confidence
             task.auto_labels = result['labels']
             task.confidence_score = result['confidence']
             task.status = TaskStatus.IN_REVIEW  # Changed from AUTO_LABELED to IN_REVIEW
+            
+            print(f"Task {task.id} auto-labeled: category={result['labels']['category']}, scores={result['labels']['scores']}")
             
             labeled_count += 1
             

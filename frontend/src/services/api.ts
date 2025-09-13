@@ -21,12 +21,39 @@ export const projectApi = {
   create: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Promise<Project> => 
     api.post('/projects/', project).then(res => res.data),
   
-  uploadDataset: (projectId: number, file: File): Promise<{ message: string }> => {
+  uploadDataset: async (projectId: number, file: File): Promise<{ message: string }> => {
+    console.log('=== FRONTEND UPLOAD DEBUG ===');
+    console.log('Project ID:', projectId);
+    console.log('File:', file);
+    console.log('File name:', file.name);
+    console.log('File size:', file.size);
+    console.log('File type:', file.type);
+    console.log('File lastModified:', file.lastModified);
+    console.log('File instanceof File:', file instanceof File);
+    
+    // Validate file
+    if (!file || file.size === 0) {
+      throw new Error('Invalid file: file is empty or null');
+    }
+    
     const formData = new FormData();
     formData.append('file', file);
+    
+    // Debug FormData contents
+    console.log('FormData has file:', formData.has('file'));
+    console.log('FormData file value:', formData.get('file'));
+    
+    console.log('FormData created, sending request...');
+    
+    // Use axios but remove the default Content-Type header for FormData
     return api.post(`/projects/${projectId}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    }).then(res => res.data);
+      headers: {
+        'Content-Type': undefined  // Let browser set the boundary
+      }
+    }).then(res => {
+      console.log('Upload successful with axios:', res.data);
+      return res.data;
+    });
   },
   
   autoLabel: (projectId: number, taskType: string, batchSize?: number): Promise<{ message: string }> => 

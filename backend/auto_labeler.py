@@ -50,13 +50,14 @@ class AutoLabeler:
             print(f"⚠️  Could not load classification model: {e}")
             self.classification_pipeline = None
     
-    def label_text(self, text: str, task_type: str) -> Dict[str, Any]:
+    def label_text(self, text: str, task_type: str, metadata_hints: Dict = None) -> Dict[str, Any]:
         """
         Main method to auto-label text based on task type
         
         Args:
             text: Input text to label
             task_type: Type of labeling task ("ner", "sentiment", "classification")
+            metadata_hints: Optional metadata hints (e.g., suggested_category from product_category)
         
         Returns:
             Dictionary with labels and confidence score
@@ -67,7 +68,7 @@ class AutoLabeler:
         elif task_type.lower() == "sentiment":
             result = self.analyze_sentiment(text)
         elif task_type.lower() == "classification":
-            result = self.classify_text(text)
+            result = self.classify_text(text, metadata_hints)
         else:
             result = self.fallback_labeling(text)
         
@@ -161,14 +162,14 @@ class AutoLabeler:
             print(f"Error in sentiment analysis: {e}")
             return self.fallback_sentiment(text)
     
-    def classify_text(self, text: str, categories: List[str] = None) -> Dict[str, Any]:
+    def classify_text(self, text: str, metadata_hints: Dict = None, categories: List[str] = None) -> Dict[str, Any]:
         """Classify text into categories"""
         if not categories:
-            categories = ["business", "technology", "sports", "entertainment", "politics", "other"]
+            categories = ["electronics", "beauty", "home", "clothing", "books", "automotive", "other"]
         
         try:
             # Simple keyword-based classification for demo
-            classification_result = self.keyword_based_classification(text, categories)
+            classification_result = self.keyword_based_classification(text, categories, metadata_hints)
             
             return {
                 "labels": {
@@ -185,25 +186,28 @@ class AutoLabeler:
             print(f"Error in text classification: {e}")
             return self.fallback_classification(text)
     
-    def keyword_based_classification(self, text: str, categories: List[str]) -> Dict[str, Any]:
-        """Simple keyword-based classification"""
+    def keyword_based_classification(self, text: str, categories: List[str], metadata_hints: Dict = None) -> Dict[str, Any]:
+        """Simple keyword-based classification with metadata hints"""
         text_lower = text.lower()
         
-        # Define keywords for each category
+        # Define keywords for Amazon product categories
         category_keywords = {
-            "business": ["business", "company", "market", "finance", "economy", "profit", "revenue", "investment", 
-                        "breach", "customers", "data", "security", "equifax", "financial", "corporate", "banking",
-                        "stock", "trading", "merger", "acquisition", "ceo", "executive", "board", "shareholder"],
-            "technology": ["technology", "software", "AI", "machine learning", "computer", "digital", "tech", "innovation",
-                          "cybersecurity", "hack", "breach", "data", "privacy", "encryption", "algorithm", "programming",
-                          "internet", "online", "app", "platform", "system", "network", "database", "cloud"],
-            "sports": ["sports", "game", "team", "player", "match", "championship", "football", "basketball", "soccer",
-                      "baseball", "tennis", "golf", "olympics", "tournament", "league", "coach", "stadium"],
-            "entertainment": ["movie", "music", "celebrity", "entertainment", "film", "show", "actor", "artist", "concert",
-                             "theater", "broadway", "album", "song", "director", "producer", "awards", "festival"],
-            "politics": ["politics", "government", "election", "president", "policy", "vote", "political", "congress",
-                        "senate", "democrat", "republican", "campaign", "candidate", "legislation", "law", "court"],
-            "other": ["general", "news", "information", "update", "report", "story", "article", "announcement"]
+            "electronics": ["laptop", "phone", "tablet", "headphones", "camera", "computer", "macbook", "iphone", "samsung", 
+                           "galaxy", "ipad", "airpods", "sony", "bose", "canon", "nintendo", "playstation", "xbox", "tesla",
+                           "battery", "screen", "display", "processor", "chip", "memory", "storage", "bluetooth", "wifi",
+                           "charging", "usb", "hdmi", "speaker", "microphone", "sensor", "lens", "zoom", "resolution"],
+            "beauty": ["sunscreen", "moisturizer", "cream", "lotion", "serum", "makeup", "lipstick", "foundation", "concealer",
+                      "mascara", "eyeshadow", "blush", "bronzer", "primer", "setting", "spray", "cleanser", "toner", "exfoliant",
+                      "vitamin", "retinol", "hyaluronic", "collagen", "spf", "uv", "protection", "anti-aging", "skincare"],
+            "home": ["furniture", "decor", "kitchen", "appliance", "cookware", "bedding", "pillow", "mattress", "sofa", "chair",
+                    "table", "lamp", "mirror", "vase", "candle", "rug", "curtain", "blinds", "shelf", "cabinet", "storage"],
+            "clothing": ["shirt", "pants", "dress", "shoes", "jacket", "sweater", "jeans", "shorts", "skirt", "blouse",
+                        "sneakers", "boots", "sandals", "hat", "cap", "belt", "bag", "purse", "backpack", "watch", "jewelry"],
+            "books": ["book", "novel", "textbook", "manual", "guide", "dictionary", "encyclopedia", "magazine", "journal",
+                     "paperback", "hardcover", "ebook", "kindle", "author", "publisher", "edition", "chapter", "page"],
+            "automotive": ["car", "truck", "suv", "vehicle", "tire", "brake", "engine", "transmission", "battery", "oil",
+                          "filter", "spark", "plug", "belt", "hose", "radiator", "alternator", "starter", "fuel", "gas"],
+            "other": ["general", "miscellaneous", "various", "assorted", "mixed", "random", "unknown", "unclear"]
         }
         
         scores = {}
@@ -219,6 +223,13 @@ class AutoLabeler:
             else:
                 scores[category] = 0.0
                 keywords_found[category] = []
+        
+        # Apply metadata hints if available
+        if metadata_hints and 'suggested_category' in metadata_hints:
+            suggested_category = metadata_hints['suggested_category']
+            if suggested_category in categories:
+                # Boost the suggested category's score
+                scores[suggested_category] = max(scores.get(suggested_category, 0), 0.8)
         
         # Find best category
         best_category = max(scores, key=scores.get)
@@ -264,11 +275,15 @@ class AutoLabeler:
     
     # Fallback methods when models are not available
     def fallback_ner(self, text: str) -> Dict[str, Any]:
-        """Fallback NER using regex patterns"""
+        """Fallback NER using regex patterns for product reviews"""
         entities = []
         
-        # Simple regex patterns for common entities
+        # Product-specific regex patterns
         patterns = {
+            "PRODUCT": r'\b(MacBook|iPhone|Samsung|Galaxy|iPad|AirPods|Sony|Bose|Canon|Nintendo|PlayStation|Tesla|Microsoft|Dell|HP|Lenovo|Google|Pixel)\b',
+            "BRAND": r'\b(Apple|Samsung|Sony|Bose|Canon|Nintendo|Sony|Microsoft|Dell|HP|Lenovo|Google|Tesla|Nintendo|Sony|Bose|Canon)\b',
+            "FEATURE": r'\b(battery|screen|display|processor|chip|memory|storage|camera|lens|zoom|resolution|bluetooth|wifi|charging|usb|hdmi|speaker|microphone|sensor|keyboard|trackpad|noise|cancellation|sound|quality|performance|speed|fast|slow|heavy|light|comfortable|bulky|premium|cheap|expensive|affordable|price|cost|value|quality|build|design|interface|software|hardware|updates|drift|issue|problem|bug|glitch|defect|flaw|perfect|amazing|excellent|great|good|bad|terrible|awful|disappointing|love|hate|like|dislike)\b',
+            "SPEC": r'\b(\d+[-\s]?inch|\d+GB|\d+MP|\d+K|\d+Hz|\d+W|\d+mAh|\d+TB|\d+MB|\d+GHz|\d+MHz|\d+W|\d+V|\d+A|\d+Ω|\d+°C|\d+°F|\d+mm|\d+cm|\d+in|\d+ft|\d+oz|\d+lb|\d+kg|\d+g|\d+mg|\d+ml|\d+L|\d+gal|\d+qt|\d+pt|\d+cup|\d+tbsp|\d+tsp|\d+fl\s?oz)\b',
             "EMAIL": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
             "PHONE": r'\b\d{3}-\d{3}-\d{4}\b|\b\(\d{3}\)\s*\d{3}-\d{4}\b',
             "DATE": r'\b\d{1,2}/\d{1,2}/\d{4}\b|\b\d{4}-\d{2}-\d{2}\b',
@@ -298,9 +313,15 @@ class AutoLabeler:
         }
     
     def fallback_sentiment(self, text: str) -> Dict[str, Any]:
-        """Fallback sentiment analysis using keyword matching"""
-        positive_words = ["good", "great", "excellent", "amazing", "wonderful", "fantastic", "love", "like", "happy"]
-        negative_words = ["bad", "terrible", "awful", "hate", "dislike", "sad", "angry", "disappointed"]
+        """Fallback sentiment analysis using product review keywords"""
+        positive_words = ["amazing", "excellent", "perfect", "love", "great", "wonderful", "fantastic", "incredible", 
+                         "stunning", "beautiful", "premium", "outstanding", "impressive", "smooth", "fast", "reliable",
+                         "comfortable", "crisp", "clear", "sharp", "brilliant", "superb", "top-notch", "high-quality",
+                         "worth", "recommend", "satisfied", "pleased", "happy", "delighted", "thrilled", "excited"]
+        negative_words = ["terrible", "awful", "disappointing", "hate", "dislike", "bad", "poor", "cheap", "flimsy",
+                         "slow", "heavy", "bulky", "uncomfortable", "blurry", "fuzzy", "grainy", "noisy", "crackling",
+                         "broken", "defective", "flawed", "useless", "waste", "regret", "frustrated", "annoyed", "angry",
+                         "sad", "upset", "disappointed", "unhappy", "unsatisfied", "problem", "issue", "bug", "glitch"]
         
         text_lower = text.lower()
         pos_count = sum(1 for word in positive_words if word in text_lower)
