@@ -180,7 +180,10 @@ async def get_pending_tasks(
     )
     
     if annotator_id:
-        query = query.filter(Task.annotator_id == annotator_id)
+        # Return tasks that are either unassigned OR assigned to this annotator
+        query = query.filter(
+            (Task.annotator_id == None) | (Task.annotator_id == annotator_id)
+        )
     
     # Still prioritize low confidence tasks first, but ALL tasks go to UI
     return query.order_by(Task.confidence_score.asc()).limit(50).all()
@@ -188,10 +191,23 @@ async def get_pending_tasks(
 @app.put("/tasks/{task_id}/review")
 async def review_task(
     task_id: int,
-    final_labels: dict,
-    annotator_id: int,
+    request: dict,
     db: Session = Depends(get_db)
 ):
+    final_labels = request.get("final_labels")
+    annotator_id = request.get("annotator_id")
+    
+    if not final_labels:
+        raise HTTPException(status_code=422, detail="final_labels is required")
+    if annotator_id is None:
+        raise HTTPException(status_code=422, detail="annotator_id is required")
+    
+    # Convert annotator_id to int if it's a string
+    try:
+        annotator_id = int(annotator_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="annotator_id must be a valid integer")
+    
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -203,6 +219,8 @@ async def review_task(
     task.final_labels = final_labels
     task.annotator_id = annotator_id
     task.status = TaskStatus.REVIEWED
+    
+    print(f"Updating task {task_id}: final_labels={final_labels}, annotator_id={annotator_id}")
     
     # Add to active learning if labels were changed
     if labels_changed and task.auto_labels and task.confidence_score:
@@ -216,16 +234,26 @@ async def review_task(
                 task_type=project.task_type
             )
     
-    db.commit()
+    try:
+        db.commit()
+        print(f"Successfully updated task {task_id}")
+    except Exception as e:
+        print(f"Database error: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
     # Notify connected clients
-    await manager.broadcast({
-        "type": "task_reviewed",
-        "project_id": task.project_id,
-        "task_id": task_id,
-        "annotator_id": annotator_id,
-        "labels_changed": labels_changed
-    })
+    try:
+        await manager.broadcast({
+            "type": "task_reviewed",
+            "project_id": task.project_id,
+            "task_id": task_id,
+            "annotator_id": annotator_id,
+            "labels_changed": labels_changed
+        })
+    except Exception as e:
+        print(f"WebSocket broadcast error: {e}")
+        # Don't fail the request if WebSocket fails
     
     return {"message": "Task reviewed successfully"}
 

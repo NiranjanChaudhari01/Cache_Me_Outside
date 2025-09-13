@@ -35,10 +35,15 @@ export const AnnotatorWorkspace: React.FC = () => {
 
   const loadProjectAndTasks = async () => {
     try {
+      console.log('🔍 Loading project and tasks for projectId:', projectId);
       const [projectData, tasksData] = await Promise.all([
         projectApi.getById(Number(projectId)),
         taskApi.getPending(Number(projectId), annotatorId)
       ]);
+      
+      console.log('📊 Project data:', projectData);
+      console.log('📋 Tasks data:', tasksData);
+      console.log('📊 Number of tasks:', tasksData.length);
       
       setProject(projectData);
       setTasks(tasksData);
@@ -47,7 +52,7 @@ export const AnnotatorWorkspace: React.FC = () => {
       // Load training stats
       loadTrainingStats();
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('❌ Error loading data:', error);
     } finally {
       setLoading(false);
     }
@@ -209,6 +214,9 @@ export const AnnotatorWorkspace: React.FC = () => {
       <div className="text-center py-12">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">No Tasks Available</h2>
         <p className="text-gray-600">All tasks have been completed or there are no tasks to review.</p>
+        <div className="mt-4 text-xs text-gray-300">
+          Debug: projectId={projectId}, project={project ? 'found' : 'null'}, tasks={tasks.length}
+        </div>
       </div>
     );
   }
