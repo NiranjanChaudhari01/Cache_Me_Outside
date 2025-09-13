@@ -59,7 +59,7 @@ export interface Annotator {
 
 export interface ProjectStats {
   total_tasks: number;
-  auto_labeled: number;
+  in_review: number;
   reviewed: number;
   approved: number;
   completion_rate: number;

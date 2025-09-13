@@ -220,6 +220,10 @@ export const ClientPortal: React.FC = () => {
             <div className="text-sm text-gray-600">Total Tasks</div>
           </div>
           <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="text-2xl font-bold text-yellow-600">{stats.in_review}</div>
+            <div className="text-sm text-gray-600">In Review</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-md p-6">
             <div className="text-2xl font-bold text-green-600">{stats.reviewed}</div>
             <div className="text-sm text-gray-600">Reviewed</div>
           </div>

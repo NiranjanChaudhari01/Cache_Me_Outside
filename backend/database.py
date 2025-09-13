@@ -4,7 +4,7 @@ from models import Base
 import os
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/smart_labeling")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://niranjanchaudhari@localhost:5432/auto_labeling")
 
 # Create engine
 engine = create_engine(DATABASE_URL)

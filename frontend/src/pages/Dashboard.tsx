@@ -133,6 +133,10 @@ export const Dashboard: React.FC = () => {
                         <span className="font-medium">{stats.total_tasks}</span>
                       </div>
                       <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">In Review:</span>
+                        <span className="font-medium">{stats.in_review}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Reviewed:</span>
                         <span className="font-medium">{stats.reviewed}</span>
                       </div>

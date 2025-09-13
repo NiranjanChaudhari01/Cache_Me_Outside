@@ -25,7 +25,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React frontend
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # React frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,10 +145,10 @@ async def auto_label_tasks(
             # Run auto-labeling
             result = auto_labeler.label_text(task.text, request.task_type)
             
-            # Update task
+            # Update task - ALL tasks go to annotator UI regardless of confidence
             task.auto_labels = result['labels']
             task.confidence_score = result['confidence']
-            task.status = TaskStatus.AUTO_LABELED
+            task.status = TaskStatus.IN_REVIEW  # Changed from AUTO_LABELED to IN_REVIEW
             
             labeled_count += 1
             
@@ -165,7 +165,7 @@ async def auto_label_tasks(
         "labeled_count": labeled_count
     })
     
-    return {"message": f"Auto-labeled {labeled_count} tasks"}
+    return {"message": f"Auto-labeled {labeled_count} tasks - all sent to annotator UI"}
 
 # Annotation endpoints
 @app.get("/projects/{project_id}/tasks/pending", response_model=List[TaskResponse])
@@ -176,12 +176,13 @@ async def get_pending_tasks(
 ):
     query = db.query(Task).filter(
         Task.project_id == project_id,
-        Task.status == TaskStatus.AUTO_LABELED
+        Task.status == TaskStatus.IN_REVIEW  # Changed from AUTO_LABELED to IN_REVIEW
     )
     
     if annotator_id:
         query = query.filter(Task.annotator_id == annotator_id)
     
+    # Still prioritize low confidence tasks first, but ALL tasks go to UI
     return query.order_by(Task.confidence_score.asc()).limit(50).all()
 
 @app.put("/tasks/{task_id}/review")
@@ -195,10 +196,25 @@ async def review_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
+    # Check if labels were actually changed (for active learning)
+    labels_changed = task.auto_labels != final_labels
+    
     # Update task with human review
     task.final_labels = final_labels
     task.annotator_id = annotator_id
     task.status = TaskStatus.REVIEWED
+    
+    # Add to active learning if labels were changed
+    if labels_changed and task.auto_labels and task.confidence_score:
+        project = db.query(Project).filter(Project.id == task.project_id).first()
+        if project:
+            auto_labeler.add_correction(
+                text=task.text,
+                original_labels=task.auto_labels,
+                corrected_labels=final_labels,
+                confidence=task.confidence_score,
+                task_type=project.task_type
+            )
     
     db.commit()
     
@@ -207,7 +223,8 @@ async def review_task(
         "type": "task_reviewed",
         "project_id": task.project_id,
         "task_id": task_id,
-        "annotator_id": annotator_id
+        "annotator_id": annotator_id,
+        "labels_changed": labels_changed
     })
     
     return {"message": "Task reviewed successfully"}
@@ -261,9 +278,9 @@ async def submit_client_feedback(
 async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
     """Get project statistics for dashboard"""
     total_tasks = db.query(Task).filter(Task.project_id == project_id).count()
-    auto_labeled = db.query(Task).filter(
+    in_review = db.query(Task).filter(
         Task.project_id == project_id,
-        Task.status == TaskStatus.AUTO_LABELED
+        Task.status == TaskStatus.IN_REVIEW
     ).count()
     reviewed = db.query(Task).filter(
         Task.project_id == project_id,
@@ -284,7 +301,7 @@ async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
     
     return {
         "total_tasks": total_tasks,
-        "auto_labeled": auto_labeled,
+        "in_review": in_review,  # Changed from auto_labeled to in_review
         "reviewed": reviewed,
         "approved": approved,
         "completion_rate": (approved / total_tasks * 100) if total_tasks > 0 else 0,
@@ -312,6 +329,44 @@ async def export_labeled_data(project_id: int, db: Session = Depends(get_db)):
         })
     
     return {"data": export_data, "count": len(export_data)}
+
+# Active learning endpoints
+@app.get("/projects/{project_id}/training-stats")
+async def get_training_stats(project_id: int):
+    """Get active learning statistics"""
+    stats = auto_labeler.get_training_stats()
+    return {
+        "project_id": project_id,
+        "active_learning": stats,
+        "message": f"Model will retrain after {stats['next_retrain_in']} more corrections"
+    }
+
+@app.post("/projects/{project_id}/force-retrain")
+async def force_retrain(project_id: int):
+    """Force immediate model retraining"""
+    auto_labeler.retrain_model()
+    return {"message": "Model learning adjustments applied"}
+
+@app.get("/projects/{project_id}/learning-insights")
+async def get_learning_insights(project_id: int, task_type: str = None):
+    """Get learning insights for a specific task type"""
+    if task_type:
+        insights = auto_labeler.get_learning_insights(task_type)
+        return {
+            "project_id": project_id,
+            "task_type": task_type,
+            "insights": insights
+        }
+    else:
+        # Get insights for all task types
+        all_insights = {}
+        for task_type in ["ner", "sentiment", "classification"]:
+            all_insights[task_type] = auto_labeler.get_learning_insights(task_type)
+        
+        return {
+            "project_id": project_id,
+            "all_insights": all_insights
+        }
 
 if __name__ == "__main__":
     import uvicorn

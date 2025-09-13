@@ -9,6 +9,11 @@ class AutoLabeler:
     def __init__(self):
         """Initialize auto-labeling models"""
         self.models = {}
+        self.training_data = []  # Store corrections for learning
+        self.retrain_threshold = 50  # Simulate retrain after 50 corrections
+        self.confidence_adjustments = {}  # Store confidence adjustments
+        self.error_patterns = {}  # Store common error patterns
+        self.learning_enabled = True  # Enable/disable learning
         self.load_models()
     
     def load_models(self):
@@ -56,14 +61,29 @@ class AutoLabeler:
         Returns:
             Dictionary with labels and confidence score
         """
+        # Get base prediction
         if task_type.lower() == "ner":
-            return self.extract_entities(text)
+            result = self.extract_entities(text)
         elif task_type.lower() == "sentiment":
-            return self.analyze_sentiment(text)
+            result = self.analyze_sentiment(text)
         elif task_type.lower() == "classification":
-            return self.classify_text(text)
+            result = self.classify_text(text)
         else:
-            return self.fallback_labeling(text)
+            result = self.fallback_labeling(text)
+        
+        # Apply learning-based confidence adjustment
+        if "confidence" in result:
+            original_confidence = result["confidence"]
+            adjusted_confidence = self.apply_confidence_adjustment(task_type, original_confidence)
+            result["confidence"] = round(adjusted_confidence, 3)
+            
+            # Add learning indicator
+            if original_confidence != adjusted_confidence:
+                result["confidence_adjusted"] = True
+                result["original_confidence"] = original_confidence
+                result["adjustment_factor"] = round(adjusted_confidence / original_confidence, 2)
+        
+        return result
     
     def extract_entities(self, text: str) -> Dict[str, Any]:
         """Extract named entities using spaCy"""
@@ -326,3 +346,254 @@ class AutoLabeler:
             "model_used": "basic_text_analyzer",
             "timestamp": datetime.utcnow().isoformat()
         }
+    
+    def add_correction(self, text: str, original_labels: Dict, corrected_labels: Dict, 
+                      confidence: float, task_type: str):
+        """Add annotator correction to training data"""
+        correction = {
+            "text": text,
+            "original_labels": original_labels,
+            "corrected_labels": corrected_labels,
+            "original_confidence": confidence,
+            "task_type": task_type,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        self.training_data.append(correction)
+        print(f"Added correction #{len(self.training_data)} for {task_type}")
+        
+        # Check if we should retrain
+        if len(self.training_data) >= self.retrain_threshold:
+            self.retrain_model()
+    
+    def retrain_model(self):
+        """Simulate model retraining with confidence adjustments"""
+        if not self.training_data:
+            return
+        
+        print(f"🔄 Simulating model retraining with {len(self.training_data)} corrections...")
+        
+        # Group corrections by task type
+        corrections_by_type = {}
+        for correction in self.training_data:
+            task_type = correction["task_type"]
+            if task_type not in corrections_by_type:
+                corrections_by_type[task_type] = []
+            corrections_by_type[task_type].append(correction)
+        
+        # Apply learning adjustments for each task type
+        for task_type, corrections in corrections_by_type.items():
+            self._apply_learning_adjustments(task_type, corrections)
+        
+        # Clear training data after "retraining"
+        self.training_data = []
+        print("✅ Model learning adjustments applied!")
+    
+    def _apply_learning_adjustments(self, task_type: str, corrections: List[Dict]):
+        """Apply learning adjustments based on corrections"""
+        print(f"Applying learning adjustments for {task_type} with {len(corrections)} corrections...")
+        
+        # Initialize task type adjustments if not exists
+        if task_type not in self.confidence_adjustments:
+            self.confidence_adjustments[task_type] = {
+                "overconfident_cases": 0,
+                "underconfident_cases": 0,
+                "total_corrections": 0,
+                "accuracy_improvement": 0.0
+            }
+        
+        if task_type not in self.error_patterns:
+            self.error_patterns[task_type] = {}
+        
+        # Analyze corrections
+        overconfident = 0
+        underconfident = 0
+        common_errors = {}
+        
+        for correction in corrections:
+            original_conf = correction["original_confidence"]
+            labels_changed = correction["original_labels"] != correction["corrected_labels"]
+            
+            if labels_changed:
+                if original_conf > 0.8:
+                    overconfident += 1
+                elif original_conf < 0.4:
+                    underconfident += 1
+                
+                # Track error patterns
+                self._track_error_patterns(task_type, correction, common_errors)
+        
+        # Update adjustments
+        self.confidence_adjustments[task_type]["overconfident_cases"] += overconfident
+        self.confidence_adjustments[task_type]["underconfident_cases"] += underconfident
+        self.confidence_adjustments[task_type]["total_corrections"] += len(corrections)
+        
+        # Calculate simulated accuracy improvement
+        accuracy_boost = min(len(corrections) * 0.02, 0.15)  # Max 15% improvement
+        self.confidence_adjustments[task_type]["accuracy_improvement"] += accuracy_boost
+        
+        # Update error patterns
+        for error, count in common_errors.items():
+            if error in self.error_patterns[task_type]:
+                self.error_patterns[task_type][error] += count
+            else:
+                self.error_patterns[task_type][error] = count
+        
+        print(f"  - Overconfident cases: {overconfident}")
+        print(f"  - Underconfident cases: {underconfident}")
+        print(f"  - Common errors: {common_errors}")
+        print(f"  - Simulated accuracy boost: +{accuracy_boost:.1%}")
+    
+    def _track_error_patterns(self, task_type: str, correction: Dict, common_errors: Dict):
+        """Track error patterns for learning"""
+        original = correction["original_labels"]
+        corrected = correction["corrected_labels"]
+        
+        if task_type == "ner" and "entities" in original and "entities" in corrected:
+            # Track entity type misclassifications
+            orig_entities = {e["text"]: e["label"] for e in original.get("entities", [])}
+            corr_entities = {e["text"]: e["label"] for e in corrected.get("entities", [])}
+            
+            for entity_text, orig_label in orig_entities.items():
+                if entity_text in corr_entities:
+                    corr_label = corr_entities[entity_text]
+                    if orig_label != corr_label:
+                        error_key = f"{orig_label}->{corr_label}"
+                        common_errors[error_key] = common_errors.get(error_key, 0) + 1
+        
+        elif task_type == "sentiment" and "sentiment" in original and "sentiment" in corrected:
+            orig_sentiment = original["sentiment"]
+            corr_sentiment = corrected["sentiment"]
+            if orig_sentiment != corr_sentiment:
+                error_key = f"{orig_sentiment}->{corr_sentiment}"
+                common_errors[error_key] = common_errors.get(error_key, 0) + 1
+        
+        elif task_type == "classification" and "category" in original and "category" in corrected:
+            orig_category = original["category"]
+            corr_category = corrected["category"]
+            if orig_category != corr_category:
+                error_key = f"{orig_category}->{corr_category}"
+                common_errors[error_key] = common_errors.get(error_key, 0) + 1
+    
+    def _analyze_ner_errors(self, correction: Dict, common_errors: Dict):
+        """Analyze NER correction patterns"""
+        original = correction["original_labels"]
+        corrected = correction["corrected_labels"]
+        
+        # Track entity type misclassifications
+        if "entities" in original and "entities" in corrected:
+            orig_entities = {e["text"]: e["label"] for e in original["entities"]}
+            corr_entities = {e["text"]: e["label"] for e in corrected["entities"]}
+            
+            for entity_text, orig_label in orig_entities.items():
+                if entity_text in corr_entities:
+                    corr_label = corr_entities[entity_text]
+                    if orig_label != corr_label:
+                        error_key = f"{orig_label}->{corr_label}"
+                        common_errors[error_key] = common_errors.get(error_key, 0) + 1
+    
+    def _analyze_sentiment_errors(self, correction: Dict, common_errors: Dict):
+        """Analyze sentiment correction patterns"""
+        original = correction["original_labels"]
+        corrected = correction["corrected_labels"]
+        
+        if "sentiment" in original and "sentiment" in corrected:
+            orig_sentiment = original["sentiment"]
+            corr_sentiment = corrected["sentiment"]
+            
+            if orig_sentiment != corr_sentiment:
+                error_key = f"{orig_sentiment}->{corr_sentiment}"
+                common_errors[error_key] = common_errors.get(error_key, 0) + 1
+    
+    def _analyze_classification_errors(self, correction: Dict, common_errors: Dict):
+        """Analyze classification correction patterns"""
+        original = correction["original_labels"]
+        corrected = correction["corrected_labels"]
+        
+        if "category" in original and "category" in corrected:
+            orig_category = original["category"]
+            corr_category = corrected["category"]
+            
+            if orig_category != corr_category:
+                error_key = f"{orig_category}->{corr_category}"
+                common_errors[error_key] = common_errors.get(error_key, 0) + 1
+    
+    def _apply_learning_adjustments(self, task_type: str, confidence_adjustments: List, common_errors: Dict):
+        """Apply learned adjustments to improve future predictions"""
+        print(f"Applying learning adjustments for {task_type}:")
+        print(f"  - Confidence adjustments: {len(confidence_adjustments)}")
+        print(f"  - Common errors: {common_errors}")
+        
+        # In a real implementation, this would:
+        # 1. Adjust confidence thresholds
+        # 2. Update model weights
+        # 3. Add new training examples
+        # 4. Fine-tune transformer models
+        
+        # For demo purposes, we'll just log the adjustments
+        if confidence_adjustments:
+            print(f"  - Model was overconfident in {len(confidence_adjustments)} cases")
+        
+        if common_errors:
+            print(f"  - Most common errors: {sorted(common_errors.items(), key=lambda x: x[1], reverse=True)[:3]}")
+    
+    def get_training_stats(self):
+        """Get statistics about training data and model performance"""
+        return {
+            "total_corrections": len(self.training_data),
+            "retrain_threshold": self.retrain_threshold,
+            "next_retrain_in": max(0, self.retrain_threshold - len(self.training_data)),
+            "corrections_by_type": self._get_corrections_by_type(),
+            "learning_adjustments": self.confidence_adjustments,
+            "error_patterns": self.error_patterns,
+            "learning_enabled": self.learning_enabled
+        }
+    
+    def apply_confidence_adjustment(self, task_type: str, original_confidence: float) -> float:
+        """Apply learning-based confidence adjustments"""
+        if not self.learning_enabled or task_type not in self.confidence_adjustments:
+            return original_confidence
+        
+        adjustments = self.confidence_adjustments[task_type]
+        
+        # Adjust confidence based on learning
+        if adjustments["overconfident_cases"] > adjustments["underconfident_cases"]:
+            # Model was overconfident, reduce confidence slightly
+            adjustment_factor = 0.95
+        elif adjustments["underconfident_cases"] > adjustments["overconfident_cases"]:
+            # Model was underconfident, increase confidence slightly
+            adjustment_factor = 1.05
+        else:
+            # Balanced, no adjustment
+            adjustment_factor = 1.0
+        
+        # Apply adjustment with bounds
+        adjusted_confidence = original_confidence * adjustment_factor
+        return max(0.1, min(0.99, adjusted_confidence))
+    
+    def get_learning_insights(self, task_type: str) -> Dict:
+        """Get learning insights for a specific task type"""
+        if task_type not in self.confidence_adjustments:
+            return {"message": "No learning data available yet"}
+        
+        adjustments = self.confidence_adjustments[task_type]
+        error_patterns = self.error_patterns.get(task_type, {})
+        
+        insights = {
+            "total_corrections": adjustments["total_corrections"],
+            "accuracy_improvement": f"+{adjustments['accuracy_improvement']:.1%}",
+            "overconfident_cases": adjustments["overconfident_cases"],
+            "underconfident_cases": adjustments["underconfident_cases"],
+            "most_common_errors": sorted(error_patterns.items(), key=lambda x: x[1], reverse=True)[:3],
+            "learning_status": "Active" if self.learning_enabled else "Disabled"
+        }
+        
+        return insights
+    
+    def _get_corrections_by_type(self):
+        """Get breakdown of corrections by task type"""
+        type_counts = {}
+        for correction in self.training_data:
+            task_type = correction["task_type"]
+            type_counts[task_type] = type_counts.get(task_type, 0) + 1
+        return type_counts
