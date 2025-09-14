@@ -75,16 +75,34 @@ export const ClientPortal: React.FC = () => {
       await feedbackApi.submit(feedback);
       
       // Update local state
-      setSampleTasks(prev => 
-        prev.map(task => 
-          task.id === selectedTask.id 
-            ? { ...task, status: action === FeedbackAction.APPROVE ? 'client_approved' : 'client_rejected' } as any
-            : task
-        )
+      const updatedTasks = sampleTasks.map(task => 
+        task.id === selectedTask.id 
+          ? { ...task, status: action === FeedbackAction.APPROVE ? 'client_approved' : 'client_rejected' } as any
+          : task
       );
+      setSampleTasks(updatedTasks);
       
-      setSelectedTask(null);
-      setFeedbackComment('');
+      // Find the next task that hasn't been reviewed yet
+      const currentTaskIndex = updatedTasks.findIndex(task => task.id === selectedTask.id);
+      const nextUnreviewedTask = updatedTasks
+        .slice(currentTaskIndex + 1)
+        .find(task => task.status === 'reviewed' && task.id !== selectedTask.id);
+      
+      if (nextUnreviewedTask) {
+        // Auto-advance to the next task
+        setSelectedTask(nextUnreviewedTask);
+        setFeedbackComment('');
+        
+        // Show a brief message that we're moving to the next task
+        console.log(`✅ Moved to next task: ${nextUnreviewedTask.id}`);
+      } else {
+        // No more tasks to review, close the modal and show completion message
+        setSelectedTask(null);
+        setFeedbackComment('');
+        
+        // Show completion message
+        console.log('🎉 All tasks have been reviewed!');
+      }
       
     } catch (error) {
       console.error('Error submitting feedback:', error);
@@ -110,7 +128,6 @@ export const ClientPortal: React.FC = () => {
             <h4 className="font-medium text-blue-900 mb-2">
               Auto-Generated Labels
               <span className="ml-2 text-sm text-blue-600">
-                ({((task.confidence_score || 0) * 100).toFixed(0)}% confidence)
               </span>
             </h4>
             {renderLabels(autoLabels, project?.task_type || '')}
@@ -252,7 +269,6 @@ export const ClientPortal: React.FC = () => {
                 <div className="flex-1">
                   <p className="text-gray-900 mb-2">{task.text.substring(0, 150)}...</p>
                   <div className="flex items-center space-x-4 text-sm text-gray-600">
-                    <span>Confidence: {((task.confidence_score || 0) * 100).toFixed(0)}%</span>
                     <span>Status: {task.status}</span>
                   </div>
                 </div>
@@ -274,7 +290,12 @@ export const ClientPortal: React.FC = () => {
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900">Review Task</h3>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Review Task</h3>
+                  <p className="text-sm text-gray-600">
+                    Task {sampleTasks.findIndex(t => t.id === selectedTask.id) + 1} of {sampleTasks.length}
+                  </p>
+                </div>
                 <button
                   onClick={() => setSelectedTask(null)}
                   className="text-gray-400 hover:text-gray-600"
@@ -289,18 +310,26 @@ export const ClientPortal: React.FC = () => {
             <div className="p-6">
               {renderTaskComparison(selectedTask)}
 
-              {/* Feedback Form */}
+              {/* Action Buttons */}
               <div className="mt-6 pt-6 border-t">
-                <h4 className="font-medium text-gray-900 mb-4">Provide Feedback</h4>
+                <div className="flex justify-between items-center mb-4">
+                  <div className="text-sm text-gray-600">
+                    {(() => {
+                      const currentIndex = sampleTasks.findIndex(t => t.id === selectedTask.id);
+                      const remainingTasks = sampleTasks.slice(currentIndex + 1).filter(task => 
+                        task.status === 'reviewed' && task.id !== selectedTask.id
+                      ).length;
+                      return remainingTasks > 0 
+                        ? `${remainingTasks} task${remainingTasks !== 1 ? 's' : ''} remaining`
+                        : 'Last task';
+                    })()}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Auto-advance enabled
+                  </div>
+                </div>
                 
-                <textarea
-                  value={feedbackComment}
-                  onChange={(e) => setFeedbackComment(e.target.value)}
-                  placeholder="Add comments or suggestions..."
-                  className="w-full p-3 border border-gray-300 rounded-lg resize-none h-24 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-
-                <div className="flex space-x-3 mt-4">
+                <div className="flex space-x-3">
                   <button
                     onClick={() => handleFeedback(FeedbackAction.APPROVE)}
                     disabled={submittingFeedback}
@@ -315,14 +344,6 @@ export const ClientPortal: React.FC = () => {
                     className="bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
                   >
                     ❌ Reject
-                  </button>
-                  
-                  <button
-                    onClick={() => handleFeedback(FeedbackAction.REQUEST_CLARIFICATION)}
-                    disabled={submittingFeedback}
-                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-                  >
-                    ❓ Need Clarification
                   </button>
                 </div>
               </div>

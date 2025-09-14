@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi } from '../services/api';
+import { Language } from '../types';
 
 export const ProjectSetup: React.FC = () => {
   const navigate = useNavigate();
@@ -11,8 +12,64 @@ export const ProjectSetup: React.FC = () => {
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
   const [taskType, setTaskType] = useState('ner');
+  const [language, setLanguage] = useState('en');
+  const [entityClasses, setEntityClasses] = useState<string[]>(['PER', 'LOC', 'ORG']);
   const [file, setFile] = useState<File | null>(null);
   const [createdProject, setCreatedProject] = useState<any>(null);
+  const [supportedLanguages, setSupportedLanguages] = useState<Language[]>([]);
+
+  // Load supported languages on component mount
+  useEffect(() => {
+    const loadLanguages = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/languages');
+        const data = await response.json();
+        
+        // Convert backend language format to frontend format
+        const languages: Language[] = Object.entries(data.supported_languages).map(([code, name]) => ({
+          code,
+          name: name as string,
+          flag: getLanguageFlag(code)
+        }));
+        
+        setSupportedLanguages(languages);
+      } catch (error) {
+        console.error('Error loading languages:', error);
+        // Fallback to basic languages
+        setSupportedLanguages([
+          { code: 'en', name: 'English', flag: '🇺🇸' },
+          { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+          { code: 'fr', name: 'French', flag: '🇫🇷' },
+          { code: 'de', name: 'German', flag: '🇩🇪' },
+          { code: 'it', name: 'Italian', flag: '🇮🇹' },
+          { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+          { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+          { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+          { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+          { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+          { code: 'ar', name: 'Arabic', flag: '🇸🇦' }
+        ]);
+      }
+    };
+    
+    loadLanguages();
+  }, []);
+
+  const getLanguageFlag = (code: string): string => {
+    const flagMap: { [key: string]: string } = {
+      'en': '🇺🇸', 'es': '🇪🇸', 'fr': '🇫🇷', 'de': '🇩🇪', 'it': '🇮🇹', 'pt': '🇵🇹',
+      'ru': '🇷🇺', 'zh': '🇨🇳', 'ja': '🇯🇵', 'ko': '🇰🇷', 'ar': '🇸🇦', 'nl': '🇳🇱',
+      'el': '🇬🇷', 'pl': '🇵🇱', 'nb': '🇳🇴', 'sv': '🇸🇪', 'da': '🇩🇰', 'fi': '🇫🇮',
+      'hu': '🇭🇺', 'ro': '🇷🇴', 'bg': '🇧🇬', 'hr': '🇭🇷', 'sl': '🇸🇮', 'lt': '🇱🇹',
+      'lv': '🇱🇻', 'et': '🇪🇪', 'uk': '🇺🇦', 'mk': '🇲🇰', 'sr': '🇷🇸', 'bs': '🇧🇦',
+      'me': '🇲🇪', 'sq': '🇦🇱', 'tr': '🇹🇷', 'he': '🇮🇱', 'hi': '🇮🇳', 'bn': '🇧🇩',
+      'id': '🇮🇩', 'th': '🇹🇭', 'vi': '🇻🇳', 'uz': '🇺🇿', 'kk': '🇰🇿', 'ky': '🇰🇬',
+      'tg': '🇹🇯', 'tk': '🇹🇲', 'az': '🇦🇿', 'ka': '🇬🇪', 'hy': '🇦🇲', 'mn': '🇲🇳',
+      'km': '🇰🇭', 'lo': '🇱🇦', 'my': '🇲🇲', 'si': '🇱🇰', 'ne': '🇳🇵', 'dz': '🇧🇹',
+      'dv': '🇲🇻', 'syl': '🇧🇩'
+    };
+    return flagMap[code] || '🌐';
+  };
 
   const handleCreateProject = async () => {
     if (!projectName.trim()) return;
@@ -22,7 +79,9 @@ export const ProjectSetup: React.FC = () => {
       const project = await projectApi.create({
         name: projectName,
         description: projectDescription,
-        task_type: taskType
+        task_type: taskType,
+        language: language,
+        entity_classes: entityClasses
       });
       
       setCreatedProject(project);
@@ -132,11 +191,9 @@ export const ProjectSetup: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Task Type *
                 </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   {[
-                    { value: 'ner', label: 'Named Entity Recognition', desc: 'Extract entities like names, places, dates' },
-                    { value: 'sentiment', label: 'Sentiment Analysis', desc: 'Classify text as positive, negative, neutral' },
-                    { value: 'classification', label: 'Text Classification', desc: 'Categorize text into predefined classes' }
+                    { value: 'ner', label: 'Named Entity Recognition', desc: 'Extract entities like names, places, dates' }
                   ].map((option) => (
                     <div
                       key={option.value}
@@ -152,6 +209,70 @@ export const ProjectSetup: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Language *
+                </label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  {supportedLanguages.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.flag} {lang.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-sm text-gray-600 mt-1">
+                  Choose the language of your text data. The system will use the appropriate language model for better accuracy.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Entity Classes to Annotate *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { value: 'PER', label: 'Person', desc: 'Names of people', color: 'bg-blue-100 border-blue-300' },
+                    { value: 'LOC', label: 'Location', desc: 'Places, cities, countries', color: 'bg-green-100 border-green-300' },
+                    { value: 'ORG', label: 'Organization', desc: 'Companies, institutions', color: 'bg-purple-100 border-purple-300' }
+                  ].map((entityClass) => (
+                    <div
+                      key={entityClass.value}
+                      onClick={() => {
+                        const newClasses = entityClasses.includes(entityClass.value)
+                          ? entityClasses.filter(c => c !== entityClass.value)
+                          : [...entityClasses, entityClass.value];
+                        setEntityClasses(newClasses);
+                      }}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        entityClasses.includes(entityClass.value)
+                          ? `${entityClass.color} border-opacity-50`
+                          : 'border-gray-300 hover:border-gray-400 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={entityClasses.includes(entityClass.value)}
+                          onChange={() => {}} // Handled by parent div click
+                          className="mr-2"
+                        />
+                        <div>
+                          <div className="font-medium text-gray-900">{entityClass.label}</div>
+                          <div className="text-xs text-gray-600">{entityClass.desc}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-600 mt-2">
+                  Select which types of entities you want to annotate. Only selected types will be detected and highlighted.
+                </p>
               </div>
             </div>
 
@@ -259,8 +380,8 @@ export const ProjectSetup: React.FC = () => {
                 <h3 className="font-medium text-yellow-900 mb-2">Auto-Labeling Process</h3>
                 <ul className="text-sm text-yellow-800 space-y-1">
                   <li>• AI models will generate initial labels for your data</li>
-                  <li>• Confidence scores will be calculated for each prediction</li>
-                  <li>• Low-confidence items will be prioritized for human review</li>
+                  <li>• All tasks will be reviewed by human annotators</li>
+                  <li>• Corrections help improve the system over time</li>
                   <li>• This process may take a few minutes depending on data size</li>
                 </ul>
               </div>

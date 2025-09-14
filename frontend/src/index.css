@@ -34,18 +34,6 @@ code {
   background: #a1a1a1;
 }
 
-/* Confidence score indicators */
-.confidence-high {
-  @apply bg-green-100 border-green-300 text-green-800;
-}
-
-.confidence-medium {
-  @apply bg-yellow-100 border-yellow-300 text-yellow-800;
-}
-
-.confidence-low {
-  @apply bg-red-100 border-red-300 text-red-800;
-}
 
 /* Entity highlighting */
 .entity-highlight {

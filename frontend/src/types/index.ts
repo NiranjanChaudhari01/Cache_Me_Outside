@@ -3,6 +3,8 @@ export interface Project {
   name: string;
   description?: string;
   task_type: string;
+  language: string;
+  entity_classes: string[];
   created_at: string;
   updated_at: string;
 }
@@ -12,7 +14,6 @@ export interface Task {
   project_id: number;
   text: string;
   auto_labels?: any;
-  confidence_score?: number;
   final_labels?: any;
   task_metadata?: any;
   status: TaskStatus;
@@ -33,8 +34,7 @@ export enum TaskStatus {
 export enum FeedbackAction {
   APPROVE = "approve",
   REJECT = "reject",
-  CORRECT = "correct",
-  REQUEST_CLARIFICATION = "request_clarification"
+  CORRECT = "correct"
 }
 
 export interface ClientFeedback {
@@ -65,7 +65,6 @@ export interface ProjectStats {
   approved: number;
   rejected: number;
   completion_rate: number;
-  average_confidence: number;
 }
 
 export interface Entity {
@@ -78,9 +77,15 @@ export interface Entity {
 
 export interface AutoLabelResult {
   labels: any;
-  confidence: number;
   model_used: string;
+  language: string;
   timestamp: string;
+}
+
+export interface Language {
+  code: string;
+  name: string;
+  flag: string;
 }
 
 export interface WebSocketMessage {

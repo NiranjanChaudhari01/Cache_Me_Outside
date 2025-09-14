@@ -19,7 +19,6 @@ class FeedbackAction(enum.Enum):
     APPROVE = "approve"
     REJECT = "reject"
     CORRECT = "correct"
-    REQUEST_CLARIFICATION = "request_clarification"
 
 class Project(Base):
     __tablename__ = "projects"
@@ -28,6 +27,8 @@ class Project(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
     task_type = Column(String, nullable=False)  # "classification", "ner", "sentiment"
+    language = Column(String, default='en')  # Language code (e.g., 'en', 'es', 'fr')
+    entity_classes = Column(JSON, default=list)  # List of entity classes to annotate (e.g., ['PER', 'LOC', 'ORG'])
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

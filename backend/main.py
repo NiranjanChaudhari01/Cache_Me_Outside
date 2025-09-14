@@ -288,32 +288,24 @@ async def auto_label_tasks(
     labeled_count = 0
     for task in tasks:
         try:
-            # Use metadata hints for better classification
+            # Get project language for auto-labeling
+            project = db.query(Project).filter(Project.id == project_id).first()
+            project_language = project.language if project else 'en'
+            
+            # Metadata hints not needed for NER
             metadata_hints = {}
-            if task.task_metadata:
-                if 'product_category' in task.task_metadata:
-                    # Map Amazon categories to our classification categories
-                    amazon_to_our_category = {
-                        'Beauty': 'beauty',
-                        'Electronics': 'electronics', 
-                        'Home': 'home',
-                        'Clothing': 'clothing',
-                        'Books': 'books',
-                        'Automotive': 'automotive'
-                    }
-                    amazon_category = task.task_metadata['product_category']
-                    if amazon_category in amazon_to_our_category:
-                        metadata_hints['suggested_category'] = amazon_to_our_category[amazon_category]
             
-            # Run auto-labeling with hints
-            result = auto_labeler.label_text(task.text, request.task_type, metadata_hints)
+            # Get entity classes from project settings
+            entity_classes = project.entity_classes if hasattr(project, 'entity_classes') and project.entity_classes else ['PER', 'LOC', 'ORG']
             
-            # Update task - ALL tasks go to annotator UI regardless of confidence
+            # Run auto-labeling with language support and entity class filtering
+            result = auto_labeler.label_text(task.text, request.task_type, project_language, metadata_hints, entity_classes)
+            
+            # Update task - ALL tasks go to annotator UI
             task.auto_labels = result['labels']
-            task.confidence_score = result['confidence']
-            task.status = TaskStatus.IN_REVIEW  # Changed from AUTO_LABELED to IN_REVIEW
+            task.status = TaskStatus.IN_REVIEW
             
-            print(f"Task {task.id} auto-labeled: category={result['labels']['category']}, scores={result['labels']['scores']}")
+            print(f"Task {task.id} auto-labeled with {project_language} model: {result['model_used']}")
             
             labeled_count += 1
             
@@ -388,14 +380,13 @@ async def review_task(
     print(f"Updating task {task_id}: final_labels={final_labels}, annotator_id={annotator_id}")
     
     # Add to active learning if labels were changed
-    if labels_changed and task.auto_labels and task.confidence_score:
+    if labels_changed and task.auto_labels:
         project = db.query(Project).filter(Project.id == task.project_id).first()
         if project:
             auto_labeler.add_correction(
                 text=task.text,
                 original_labels=task.auto_labels,
                 corrected_labels=final_labels,
-                confidence=task.confidence_score,
                 task_type=project.task_type
             )
     
@@ -588,40 +579,21 @@ async def export_ner_csv(project_id: int, db: Session = Depends(get_db)):
 # Active learning endpoints
 @app.get("/projects/{project_id}/training-stats")
 async def get_training_stats(project_id: int):
-    """Get active learning statistics"""
+    """Get training statistics"""
     stats = auto_labeler.get_training_stats()
     return {
         "project_id": project_id,
-        "active_learning": stats,
-        "message": f"Model will retrain after {stats['next_retrain_in']} more corrections"
+        "training_stats": stats
     }
 
-@app.post("/projects/{project_id}/force-retrain")
-async def force_retrain(project_id: int):
-    """Force immediate model retraining"""
-    auto_labeler.retrain_model()
-    return {"message": "Model learning adjustments applied"}
-
-@app.get("/projects/{project_id}/learning-insights")
-async def get_learning_insights(project_id: int, task_type: str = None):
-    """Get learning insights for a specific task type"""
-    if task_type:
-        insights = auto_labeler.get_learning_insights(task_type)
-        return {
-            "project_id": project_id,
-            "task_type": task_type,
-            "insights": insights
-        }
-    else:
-        # Get insights for all task types
-        all_insights = {}
-        for task_type in ["ner", "sentiment", "classification"]:
-            all_insights[task_type] = auto_labeler.get_learning_insights(task_type)
-        
-        return {
-            "project_id": project_id,
-            "all_insights": all_insights
-        }
+@app.get("/languages")
+async def get_supported_languages():
+    """Get list of supported languages"""
+    languages = auto_labeler.get_supported_languages()
+    return {
+        "supported_languages": languages,
+        "total_languages": len(languages)
+    }
 
 if __name__ == "__main__":
     import uvicorn

@@ -8,12 +8,16 @@ class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
     task_type: str  # "classification", "ner", "sentiment"
+    language: str = 'en'  # Language code (e.g., 'en', 'es', 'fr')
+    entity_classes: List[str] = ['PER', 'LOC', 'ORG']  # Entity classes to annotate
 
 class ProjectResponse(BaseModel):
     id: int
     name: str
     description: Optional[str]
     task_type: str
+    language: str
+    entity_classes: List[str]
     created_at: datetime
     updated_at: datetime
     

@@ -3,6 +3,22 @@ import { Link } from 'react-router-dom';
 import { projectApi } from '../services/api';
 import { Project, ProjectStats } from '../types';
 
+const getLanguageFlag = (code: string): string => {
+  const flagMap: { [key: string]: string } = {
+    'en': '🇺🇸', 'es': '🇪🇸', 'fr': '🇫🇷', 'de': '🇩🇪', 'it': '🇮🇹', 'pt': '🇵🇹',
+    'ru': '🇷🇺', 'zh': '🇨🇳', 'ja': '🇯🇵', 'ko': '🇰🇷', 'ar': '🇸🇦', 'nl': '🇳🇱',
+    'el': '🇬🇷', 'pl': '🇵🇱', 'nb': '🇳🇴', 'sv': '🇸🇪', 'da': '🇩🇰', 'fi': '🇫🇮',
+    'hu': '🇭🇺', 'ro': '🇷🇴', 'bg': '🇧🇬', 'hr': '🇭🇷', 'sl': '🇸🇮', 'lt': '🇱🇹',
+    'lv': '🇱🇻', 'et': '🇪🇪', 'uk': '🇺🇦', 'mk': '🇲🇰', 'sr': '🇷🇸', 'bs': '🇧🇦',
+    'me': '🇲🇪', 'sq': '🇦🇱', 'tr': '🇹🇷', 'he': '🇮🇱', 'hi': '🇮🇳', 'bn': '🇧🇩',
+    'id': '🇮🇩', 'th': '🇹🇭', 'vi': '🇻🇳', 'uz': '🇺🇿', 'kk': '🇰🇿', 'ky': '🇰🇬',
+    'tg': '🇹🇯', 'tk': '🇹🇲', 'az': '🇦🇿', 'ka': '🇬🇪', 'hy': '🇦🇲', 'mn': '🇲🇳',
+    'km': '🇰🇭', 'lo': '🇱🇦', 'my': '🇲🇲', 'si': '🇱🇰', 'ne': '🇳🇵', 'dz': '🇧🇹',
+    'dv': '🇲🇻', 'syl': '🇧🇩'
+  };
+  return flagMap[code] || '🌐';
+};
+
 export const Dashboard: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectStats, setProjectStats] = useState<{ [key: number]: ProjectStats }>({});
@@ -94,11 +110,6 @@ export const Dashboard: React.FC = () => {
     return 'text-red-600 bg-red-100';
   };
 
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.8) return 'text-green-600';
-    if (confidence >= 0.6) return 'text-yellow-600';
-    return 'text-red-600';
-  };
 
   if (loading) {
     return (
@@ -152,9 +163,14 @@ export const Dashboard: React.FC = () => {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{project.name}</h3>
-                      <span className="inline-block px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                        {project.task_type.toUpperCase()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                          {project.task_type.toUpperCase()}
+                        </span>
+                        <span className="inline-block px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                          {getLanguageFlag(project.language)} {project.language.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                     {stats && (
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(stats.completion_rate)}`}>
@@ -188,10 +204,6 @@ export const Dashboard: React.FC = () => {
                         <span className="font-medium text-red-600">{stats.rejected}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Avg Confidence:</span>
-                        <span className={`font-medium ${getConfidenceColor(stats.average_confidence)}`}>
-                          {(stats.average_confidence * 100).toFixed(0)}%
-                        </span>
                       </div>
                       
                       {/* Progress Bar */}
