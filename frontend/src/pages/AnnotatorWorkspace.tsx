@@ -23,6 +23,10 @@ export const AnnotatorWorkspace: React.FC = () => {
   const [lastCorrection, setLastCorrection] = useState<string | null>(null);
   const [retrainingInProgress, setRetrainingInProgress] = useState(false);
   const [learningInsights, setLearningInsights] = useState<any>(null);
+  const [showEntityModal, setShowEntityModal] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
+  const [selectedEntityType, setSelectedEntityType] = useState('PER');
+  const [tempEntities, setTempEntities] = useState<any[]>([]);
 
   const currentTask = tasks[currentTaskIndex];
   const annotatorId = 1; // Demo annotator ID
@@ -32,6 +36,20 @@ export const AnnotatorWorkspace: React.FC = () => {
       loadProjectAndTasks();
     }
   }, [projectId]);
+
+  // Global text selection listener
+  useEffect(() => {
+    const handleGlobalSelection = () => {
+      if (showEntityModal) {
+        handleTextSelection();
+      }
+    };
+
+    document.addEventListener('selectionchange', handleGlobalSelection);
+    return () => {
+      document.removeEventListener('selectionchange', handleGlobalSelection);
+    };
+  }, [showEntityModal]);
 
   const loadProjectAndTasks = async () => {
     try {
@@ -199,16 +217,66 @@ export const AnnotatorWorkspace: React.FC = () => {
   };
 
   const handleAddEntity = () => {
-    const newEntity = {
-      class_name: 'PER', // Default to person
-      start_index: 0,
-      end_index: 0,
-      text: 'New Entity',
-      original_label: 'PERSON'
-    };
+    setShowEntityModal(true);
+    setSelectedText('');
+    setSelectedEntityType('PER');
+    setTempEntities([]);
+  };
+
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim()) {
+      const selectedText = selection.toString().trim();
+      console.log('🎯 Text selected:', selectedText);
+      setSelectedText(selectedText);
+    }
+  };
+
+  const handleMouseUp = (event: React.MouseEvent<HTMLSpanElement>) => {
+    // Small delay to ensure selection is complete
+    setTimeout(() => {
+      handleTextSelection();
+    }, 10);
+  };
+
+  const addTempEntity = () => {
+    if (!selectedText.trim()) {
+      alert('Please select some text first');
+      return;
+    }
+
+    const fullText = currentTask.task_metadata?.full_text || currentTask.text;
+    const startIndex = fullText.indexOf(selectedText);
     
+    if (startIndex === -1) {
+      alert('Selected text not found in full text');
+      return;
+    }
+
+    const newEntity = {
+      class_name: selectedEntityType,
+      start_index: startIndex,
+      end_index: startIndex + selectedText.length,
+      text: selectedText,
+      original_label: selectedEntityType === 'PER' ? 'PERSON' : 'LOCATION'
+    };
+
+    setTempEntities([...tempEntities, newEntity]);
+    setSelectedText('');
+  };
+
+  const removeTempEntity = (index: number) => {
+    setTempEntities(tempEntities.filter((_, i) => i !== index));
+  };
+
+  const submitEntities = () => {
+    if (tempEntities.length === 0) {
+      alert('Please add at least one entity');
+      return;
+    }
+
     const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.entities || [];
-    const updatedEntities = [...currentEntities, newEntity];
+    const updatedEntities = [...currentEntities, ...tempEntities];
     
     const baseLabels = editedLabels || currentTask?.auto_labels || {};
     const updatedLabels = {
@@ -219,6 +287,8 @@ export const AnnotatorWorkspace: React.FC = () => {
     };
     
     setEditedLabels(updatedLabels);
+    setShowEntityModal(false);
+    setTempEntities([]);
   };
 
   const handleExportData = async () => {
@@ -589,7 +659,12 @@ export const AnnotatorWorkspace: React.FC = () => {
                   {/* Full text with highlighted portion */}
                   <div className="bg-gray-50 border border-gray-200 p-4 rounded">
                     <div className="text-sm text-gray-600 font-medium mb-2">Full Text with Highlighted Annotation Target:</div>
-                    <div className="text-gray-900 leading-relaxed whitespace-pre-wrap break-words">
+                    <div 
+                      className="text-gray-900 leading-relaxed whitespace-pre-wrap break-words select-text cursor-text"
+                      onMouseUp={handleMouseUp}
+                      onSelect={handleTextSelection}
+                      style={{ userSelect: 'text' }}
+                    >
                       {(() => {
                         console.log('🔍 Current task data:', {
                           taskId: currentTask.id,
@@ -845,6 +920,158 @@ export const AnnotatorWorkspace: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Entity Addition Modal */}
+      {showEntityModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Add New Entities</h2>
+                <button
+                  onClick={() => setShowEntityModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Instructions */}
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Instructions:</strong> Select text from the full text below by dragging your cursor, then choose an entity type and click "Add Entity".
+                </p>
+              </div>
+
+              {/* Full Text Display in Modal */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Text with Highlighted Annotation Target:
+                </label>
+                <div 
+                  className="p-4 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 leading-relaxed whitespace-pre-wrap break-words select-text cursor-text max-h-48 overflow-y-auto"
+                  onMouseUp={handleMouseUp}
+                  onSelect={handleTextSelection}
+                  style={{ userSelect: 'text' }}
+                >
+                  {(() => {
+                    const fullText = currentTask.task_metadata?.full_text || currentTask.text;
+                    const textToAnnotate = currentTask.text;
+                    
+                    return renderFullTextWithHighlight(
+                      fullText,
+                      textToAnnotate,
+                      currentTask.auto_labels?.entities
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Text Selection Area */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Selected Text:
+                </label>
+                <div className="p-3 bg-gray-50 border border-gray-300 rounded-lg min-h-[40px] mb-2">
+                  {selectedText ? (
+                    <span className="text-gray-900 font-medium">{selectedText}</span>
+                  ) : (
+                    <span className="text-gray-500 italic">No text selected. Select text from the main text area above or type manually below.</span>
+                  )}
+                </div>
+                
+                {/* Manual Text Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Or type text manually:
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedText}
+                    onChange={(e) => setSelectedText(e.target.value)}
+                    placeholder="Type the text you want to mark as an entity..."
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Entity Type Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Entity Type:
+                </label>
+                <select
+                  value={selectedEntityType}
+                  onChange={(e) => setSelectedEntityType(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="PER">PER - Person</option>
+                  <option value="LOC">LOC - Location</option>
+                  <option value="ORG">ORG - Organization</option>
+                  <option value="MISC">MISC - Miscellaneous</option>
+                </select>
+              </div>
+
+              {/* Add Entity Button */}
+              <div className="mb-4">
+                <button
+                  onClick={addTempEntity}
+                  disabled={!selectedText.trim()}
+                  className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+                >
+                  Add Entity
+                </button>
+              </div>
+
+              {/* Temporary Entities List */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Entities to Add ({tempEntities.length}):
+                </label>
+                <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg">
+                  {tempEntities.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500 italic">
+                      No entities added yet
+                    </div>
+                  ) : (
+                    tempEntities.map((entity, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border-b border-gray-200 last:border-b-0">
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-900">{entity.text}</span>
+                          <span className="ml-2 text-sm text-gray-600">({entity.class_name})</span>
+                        </div>
+                        <button
+                          onClick={() => removeTempEntity(index)}
+                          className="text-red-500 hover:text-red-700 text-sm hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowEntityModal(false)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded-lg font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitEntities}
+                  disabled={tempEntities.length === 0}
+                  className="flex-1 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+                >
+                  Submit Entities ({tempEntities.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
