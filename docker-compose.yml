@@ -18,6 +18,23 @@ services:
       timeout: 10s
       retries: 3
 
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI port
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Backend API
   backend:
     build:
@@ -27,12 +44,32 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:password@postgres:5432/smart_labeling
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # RabbitMQ Consumer Service
+  auto_labeler_consumer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/smart_labeling
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: python auto_labeler_consumer.py
 
   # Frontend React App
   frontend:
@@ -51,3 +88,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:

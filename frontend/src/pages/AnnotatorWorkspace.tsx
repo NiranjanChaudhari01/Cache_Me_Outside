@@ -77,7 +77,7 @@ export const AnnotatorWorkspace: React.FC = () => {
       
       setProject(projectData);
       setTasks(tasksData);
-      setEditedLabels(tasksData[0]?.auto_labels ? { ...tasksData[0].auto_labels } : null);
+      setEditedLabels(tasksData[0]?.auto_labels ? { ...tasksData[0].auto_labels.labels } : null);
       
       // Load training stats
       loadTrainingStats();
@@ -103,7 +103,7 @@ export const AnnotatorWorkspace: React.FC = () => {
     
     setSaving(true);
     try {
-      await taskApi.review(currentTask.id, currentTask.auto_labels, annotatorId);
+      await taskApi.review(currentTask.id, currentTask.auto_labels?.labels || currentTask.auto_labels, annotatorId);
       
       // Update the current task in local state with the accepted auto_labels as final_labels
       const updatedTasks = tasks.map(task => 
@@ -151,7 +151,7 @@ export const AnnotatorWorkspace: React.FC = () => {
       });
       
       // Check if labels were changed (for learning feedback)
-      const labelsChanged = JSON.stringify(currentTask.auto_labels) !== JSON.stringify(editedLabels);
+      const labelsChanged = JSON.stringify(currentTask.auto_labels?.labels || currentTask.auto_labels) !== JSON.stringify(editedLabels);
       
       if (labelsChanged) {
         setLastCorrection(`Labels corrected for task ${currentTask.id}`);
@@ -201,12 +201,12 @@ export const AnnotatorWorkspace: React.FC = () => {
   };
 
   const handleRemoveEntity = (entityIndex: number) => {
-    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.entities || [];
+    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.labels?.entities || [];
     if (!currentEntities) return;
     
     const updatedEntities = currentEntities.filter((_: any, index: number) => index !== entityIndex);
     
-    const baseLabels = editedLabels || currentTask?.auto_labels || {};
+    const baseLabels = editedLabels || currentTask?.auto_labels?.labels || currentTask?.auto_labels || {};
     const updatedLabels = {
       ...baseLabels,
       entities: updatedEntities,
@@ -278,10 +278,10 @@ export const AnnotatorWorkspace: React.FC = () => {
       return;
     }
 
-    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.entities || [];
+    const currentEntities = editedLabels?.entities || currentTask?.auto_labels?.labels?.entities || [];
     const updatedEntities = [...currentEntities, ...tempEntities];
     
-    const baseLabels = editedLabels || currentTask?.auto_labels || {};
+    const baseLabels = editedLabels || currentTask?.auto_labels?.labels || currentTask?.auto_labels || {};
     const updatedLabels = {
       ...baseLabels,
       entities: updatedEntities,
@@ -610,7 +610,7 @@ export const AnnotatorWorkspace: React.FC = () => {
                         return renderFullTextWithHighlight(
                           fullText,
                           textToAnnotate,
-                          currentTask.auto_labels?.entities
+                          currentTask.auto_labels?.labels?.entities
                         );
                       })()}
                     </div>
@@ -651,9 +651,9 @@ export const AnnotatorWorkspace: React.FC = () => {
                     + Add Entity
                   </button>
                 </div>
-                {(editedLabels?.entities || currentTask.auto_labels.entities) && (editedLabels?.entities?.length > 0 || currentTask.auto_labels.entities?.length > 0) ? (
+                {(editedLabels?.entities || currentTask.auto_labels.labels.entities) && (editedLabels?.entities?.length > 0 || currentTask.auto_labels.labels.entities?.length > 0) ? (
                   <div className="space-y-2">
-                  {(editedLabels?.entities || currentTask.auto_labels.entities || []).map((entity: any, index: number) => (
+                  {(editedLabels?.entities || currentTask.auto_labels.labels.entities || []).map((entity: any, index: number) => (
                     <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <div>
                         <span className={`entity-highlight entity-${entity.class_name}`}>

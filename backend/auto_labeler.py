@@ -192,18 +192,32 @@ class AutoLabeler:
     
     def _get_entity_mapping(self, language: str) -> Dict[str, str]:
         """Get entity type mapping for different languages"""
-        # Base mapping for most languages
+        # Base mapping for most languages - updated with correct spaCy labels
         base_mapping = {
             'PERSON': 'PER',
             'PER': 'PER',
-            'GPE': 'LOC',  # Geopolitical entity
-            'LOC': 'LOC',  # Location
+            'GPE': 'LOC',  # Geopolitical entity (countries, cities, states)
+            'LOC': 'LOC',  # Location (mountains, bodies of water, etc.)
             'LOCATION': 'LOC',
-            'EVENT': 'LOC',  # Historical events
+            'EVENT': 'MISC',  # Historical events
             'ORG': 'ORG',   # Organization
             'ORGANIZATION': 'ORG',
             'MISC': 'MISC',
-            'MISCELLANEOUS': 'MISC'
+            'MISCELLANEOUS': 'MISC',
+            # Additional spaCy labels
+            'FAC': 'LOC',  # Buildings, airports, highways, bridges, etc.
+            'NORP': 'ORG',  # Nationalities, religious or political groups
+            'WORK_OF_ART': 'MISC',  # Titles of books, songs, etc.
+            'LAW': 'MISC',  # Named documents made into laws
+            'LANGUAGE': 'MISC',  # Named languages
+            'DATE': 'MISC',  # Absolute or relative dates or periods
+            'TIME': 'MISC',  # Times smaller than a day
+            'MONEY': 'MISC',  # Monetary values
+            'PERCENT': 'MISC',  # Percentage
+            'QUANTITY': 'MISC',  # Measurements
+            'ORDINAL': 'MISC',  # "first", "second", etc.
+            'CARDINAL': 'MISC',  # Numerals that don't fall under another type
+            'PRODUCT': 'MISC'  # Objects, vehicles, foods, etc.
         }
         
         # Language-specific mappings

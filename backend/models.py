@@ -8,6 +8,7 @@ Base = declarative_base()
 
 class TaskStatus(enum.Enum):
     UPLOADED = "uploaded"
+    PROCESSING = "processing"
     AUTO_LABELED = "auto_labeled"
     IN_REVIEW = "in_review"
     REVIEWED = "reviewed"

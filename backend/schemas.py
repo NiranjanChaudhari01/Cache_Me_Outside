@@ -107,3 +107,26 @@ class WebSocketMessage(BaseModel):
     type: str
     data: Dict[str, Any]
     timestamp: datetime = datetime.utcnow()
+
+# RabbitMQ message schemas
+class AutoLabelTaskMessage(BaseModel):
+    """Message sent to RabbitMQ for auto-labeling tasks"""
+    task_id: int
+    project_id: int
+    text: str
+    task_type: str
+    language: str
+    entity_classes: List[str]
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime = datetime.utcnow()
+
+class AutoLabelResultMessage(BaseModel):
+    """Message sent back from consumer after auto-labeling"""
+    task_id: int
+    project_id: int
+    success: bool
+    auto_labels: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    model_used: Optional[str] = None
+    processing_time: Optional[float] = None
+    completed_at: datetime = datetime.utcnow()

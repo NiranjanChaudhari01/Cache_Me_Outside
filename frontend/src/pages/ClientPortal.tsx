@@ -10,6 +10,7 @@ export const ClientPortal: React.FC = () => {
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [currentTaskNumber, setCurrentTaskNumber] = useState(1);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [wsService] = useState(() => new WebSocketService('client-' + Date.now()));
@@ -91,6 +92,7 @@ export const ClientPortal: React.FC = () => {
       if (nextUnreviewedTask) {
         // Auto-advance to the next task
         setSelectedTask(nextUnreviewedTask);
+        setCurrentTaskNumber(prev => prev + 1);
         setFeedbackComment('');
         
         // Show a brief message that we're moving to the next task
@@ -148,19 +150,26 @@ export const ClientPortal: React.FC = () => {
   const renderLabels = (labels: any, taskType: string) => {
     if (!labels) return <p className="text-gray-600 italic">No labels</p>;
 
-    if (taskType === 'ner' && labels.entities) {
-      return (
-        <div className="space-y-2">
-          {labels.entities.map((entity: any, index: number) => (
-            <div key={index} className="flex items-center space-x-2">
-              <span className={`entity-highlight entity-${entity.class_name} text-xs`}>
-                {entity.text}
-              </span>
-              <span className="text-sm text-gray-600">({entity.class_name})</span>
-            </div>
-          ))}
-        </div>
-      );
+    if (taskType === 'ner') {
+      // Handle both old and new data structures
+      const entities = labels.entities || labels.labels?.entities || [];
+      
+      if (entities.length > 0) {
+        return (
+          <div className="space-y-2">
+            {entities.map((entity: any, index: number) => (
+              <div key={index} className="flex items-center space-x-2">
+                <span className={`entity-highlight entity-${entity.class_name} text-xs`}>
+                  {entity.text}
+                </span>
+                <span className="text-sm text-gray-600">({entity.class_name})</span>
+              </div>
+            ))}
+          </div>
+        );
+      } else {
+        return <p className="text-gray-600 italic">No entities detected</p>;
+      }
     }
 
     if (taskType === 'sentiment') {
@@ -273,7 +282,10 @@ export const ClientPortal: React.FC = () => {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedTask(task)}
+                  onClick={() => {
+                    setSelectedTask(task);
+                    setCurrentTaskNumber(sampleTasks.findIndex(t => t.id === task.id) + 1);
+                  }}
                   className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   Review
@@ -293,11 +305,14 @@ export const ClientPortal: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Review Task</h3>
                   <p className="text-sm text-gray-600">
-                    Task {sampleTasks.findIndex(t => t.id === selectedTask.id) + 1} of {sampleTasks.length}
+                    Task {currentTaskNumber} of {stats?.total_tasks || sampleTasks.length}
                   </p>
                 </div>
                 <button
-                  onClick={() => setSelectedTask(null)}
+                  onClick={() => {
+                    setSelectedTask(null);
+                    setCurrentTaskNumber(1);
+                  }}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -9,15 +9,17 @@ import pandas as pd
 from io import StringIO, BytesIO
 import csv
 import re
+from datetime import datetime
 
 from database import get_db, init_db
 from models import Project, Task, Annotator, ClientFeedback, Guideline, TaskStatus, FeedbackAction
 from schemas import (
     ProjectCreate, ProjectResponse, TaskResponse, AnnotatorCreate, 
-    ClientFeedbackCreate, GuidelineCreate, AutoLabelRequest
+    ClientFeedbackCreate, GuidelineCreate, AutoLabelRequest, AutoLabelTaskMessage
 )
 from auto_labeler import AutoLabeler
 from websocket_manager import ConnectionManager
+from rabbitmq_publisher import RabbitMQPublisher
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -38,6 +40,32 @@ app.add_middleware(
 # Initialize components
 auto_labeler = AutoLabeler()
 manager = ConnectionManager()
+# Initialize RabbitMQ publisher lazily to avoid connection issues during startup
+rabbitmq_publisher = None
+
+def get_rabbitmq_publisher():
+    global rabbitmq_publisher
+    if rabbitmq_publisher is None:
+        rabbitmq_publisher = RabbitMQPublisher()
+    return rabbitmq_publisher
+
+def calculate_confidence_score(auto_labels: dict) -> float:
+    """Calculate confidence score based on auto-labeling results"""
+    if not auto_labels or 'entities' not in auto_labels:
+        return 0.0
+    
+    entities = auto_labels['entities']
+    if not entities:
+        return 0.0
+    
+    # Simple confidence calculation based on entity count and types
+    # More entities generally indicate higher confidence
+    entity_count = len(entities)
+    unique_types = len(set(entity.get('class_name', '') for entity in entities))
+    
+    # Normalize to 0-1 range
+    confidence = min(1.0, (entity_count * 0.1) + (unique_types * 0.2))
+    return round(confidence, 2)
 
 # Exception handler for validation errors
 @app.exception_handler(RequestValidationError)
@@ -269,13 +297,106 @@ async def upload_dataset(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing file: {str(e)}")
 
-# Auto-labeling endpoint
+# Add sample tasks endpoint
+@app.post("/projects/{project_id}/add-sample-tasks")
+async def add_sample_tasks(
+    project_id: int,
+    task_type: str = "classification",
+    count: int = 10,
+    db: Session = Depends(get_db)
+):
+    """Add sample tasks to a project for testing"""
+    
+    # Get project
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Sample data based on task type
+    if task_type == "classification":
+        sample_texts = [
+            "This product is absolutely amazing! I love it so much.",
+            "Terrible quality, would not recommend to anyone.",
+            "The product is okay, nothing special but works fine.",
+            "Outstanding service and excellent product quality.",
+            "Completely disappointed with this purchase.",
+            "Great value for money, highly recommend!",
+            "Average product, could be better.",
+            "Perfect! Exactly what I was looking for.",
+            "Waste of money, poor quality materials.",
+            "Good product overall, minor issues but acceptable."
+        ]
+    elif task_type == "ner":
+        sample_texts = [
+            "Apple Inc. is located in Cupertino, California.",
+            "John Smith works at Microsoft in Seattle, Washington.",
+            "The conference will be held in New York City at the Hilton Hotel.",
+            "Sarah Johnson from Google visited our office in Boston.",
+            "Amazon's headquarters is in Seattle, founded by Jeff Bezos.",
+            "The meeting is scheduled at Facebook's office in Menlo Park.",
+            "Dr. Emily Davis works at Stanford University in Palo Alto.",
+            "Tesla Motors is based in Austin, Texas, led by Elon Musk.",
+            "The event takes place at the Marriott Hotel in San Francisco.",
+            "Professor Michael Brown teaches at MIT in Cambridge."
+        ]
+    elif task_type == "sentiment":
+        sample_texts = [
+            "I am so excited about this new feature!",
+            "This is the worst experience I've ever had.",
+            "The weather is nice today, nothing special though.",
+            "Absolutely love this! Best purchase ever!",
+            "Completely frustrated with this service.",
+            "It's okay, nothing to write home about.",
+            "Fantastic! Exceeded all my expectations.",
+            "Terrible quality, very disappointed.",
+            "Pretty good overall, would recommend.",
+            "Amazing results, couldn't be happier!"
+        ]
+    else:
+        raise HTTPException(status_code=400, detail="Invalid task type. Must be 'classification', 'ner', or 'sentiment'")
+    
+    # Create tasks (limit to available samples)
+    tasks_to_create = min(count, len(sample_texts))
+    tasks_created = 0
+    
+    for i in range(tasks_to_create):
+        task = Task(
+            project_id=project_id,
+            text=sample_texts[i],
+            status=TaskStatus.UPLOADED,
+            task_metadata={
+                "source": "sample_data",
+                "task_type": task_type,
+                "sample_index": i
+            }
+        )
+        db.add(task)
+        tasks_created += 1
+    
+    db.commit()
+    
+    # Notify connected clients
+    await manager.broadcast({
+        "type": "sample_tasks_added",
+        "project_id": project_id,
+        "tasks_count": tasks_created,
+        "task_type": task_type
+    })
+    
+    return {
+        "message": f"Successfully added {tasks_created} sample {task_type} tasks",
+        "tasks_created": tasks_created,
+        "task_type": task_type
+    }
+
+# Auto-labeling endpoint - now uses queue-based processing
 @app.post("/projects/{project_id}/auto-label")
 async def auto_label_tasks(
     project_id: int,
     request: AutoLabelRequest,
     db: Session = Depends(get_db)
 ):
+    """Auto-labeling endpoint that publishes tasks to queue for async processing"""
     # Get pending tasks
     tasks = db.query(Task).filter(
         Task.project_id == project_id,
@@ -285,44 +406,151 @@ async def auto_label_tasks(
     if not tasks:
         raise HTTPException(status_code=404, detail="No tasks available for auto-labeling")
     
-    labeled_count = 0
-    for task in tasks:
-        try:
-            # Get project language for auto-labeling
-            project = db.query(Project).filter(Project.id == project_id).first()
-            project_language = project.language if project else 'en'
-            
-            # Metadata hints not needed for NER
-            metadata_hints = {}
-            
-            # Get entity classes from project settings
-            entity_classes = project.entity_classes if hasattr(project, 'entity_classes') and project.entity_classes else ['PER', 'LOC', 'ORG']
-            
-            # Run auto-labeling with language support and entity class filtering
-            result = auto_labeler.label_text(task.text, request.task_type, project_language, metadata_hints, entity_classes)
-            
-            # Update task - ALL tasks go to annotator UI
-            task.auto_labels = result['labels']
-            task.status = TaskStatus.IN_REVIEW
-            
-            print(f"Task {task.id} auto-labeled with {project_language} model: {result['model_used']}")
-            
-            labeled_count += 1
-            
-        except Exception as e:
-            print(f"Error auto-labeling task {task.id}: {str(e)}")
-            continue
+    # Get project information
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     
-    db.commit()
+    project_language = project.language if project else 'en'
+    entity_classes = project.entity_classes if hasattr(project, 'entity_classes') and project.entity_classes else ['PER', 'LOC', 'ORG']
+    
+    # Create RabbitMQ messages for each task (don't update status yet)
+    task_messages = []
+    for task in tasks:
+        task_message = AutoLabelTaskMessage(
+            task_id=task.id,
+            project_id=project_id,
+            text=task.text,
+            task_type=request.task_type,
+            language=project_language,
+            entity_classes=entity_classes,
+            metadata=task.task_metadata
+        )
+        task_messages.append(task_message)
+    
+    # Don't update task status here - let the consumer do it
+    
+    # Publish messages to RabbitMQ
+    publisher = get_rabbitmq_publisher()
+    published_count = publisher.publish_batch_auto_labeling_tasks(task_messages)
+    
+    if published_count == 0:
+        # If no messages were published, no need to revert status (we didn't change them)
+        raise HTTPException(status_code=500, detail="Failed to publish tasks to processing queue")
     
     # Notify connected clients
     await manager.broadcast({
-        "type": "auto_labeling_completed",
+        "type": "auto_labeling_queued",
         "project_id": project_id,
-        "labeled_count": labeled_count
+        "tasks_queued": published_count,
+        "status": "queued"
     })
     
-    return {"message": f"Auto-labeled {labeled_count} tasks - all sent to annotator UI"}
+    return {
+        "message": f"Queued {published_count} tasks for async auto-labeling",
+        "tasks_queued": published_count,
+        "status": "queued"
+    }
+
+# Direct processing endpoint (for testing/fallback)
+@app.post("/projects/{project_id}/auto-label-direct")
+async def auto_label_tasks_direct(
+    project_id: int,
+    request: AutoLabelRequest,
+    db: Session = Depends(get_db)
+):
+    """Auto-labeling endpoint with direct processing (for testing/fallback)"""
+    # Get pending tasks
+    tasks = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.status == TaskStatus.UPLOADED
+    ).limit(request.batch_size or 100).all()
+    
+    if not tasks:
+        raise HTTPException(status_code=404, detail="No tasks available for auto-labeling")
+    
+    # Get project information
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    project_language = project.language if project else 'en'
+    entity_classes = project.entity_classes if hasattr(project, 'entity_classes') and project.entity_classes else ['PER', 'LOC', 'ORG']
+    
+    # Update all tasks to processing status
+    for task in tasks:
+        task.status = TaskStatus.PROCESSING
+    db.commit()
+    
+    # Notify clients that processing has started
+    await manager.broadcast({
+        "type": "auto_labeling_started",
+        "project_id": project_id,
+        "tasks_count": len(tasks),
+        "status": "processing"
+    })
+    
+    # Process tasks directly
+    processed_count = 0
+    failed_count = 0
+    
+    for task in tasks:
+        try:
+            # Process the task using the auto-labeler
+            result = auto_labeler.label_text(
+                text=task.text,
+                task_type=request.task_type,
+                language=project_language,
+                metadata_hints=task.task_metadata or {},
+                entity_classes=entity_classes
+            )
+            
+            # Update task with results
+            task.auto_labels = result['labels']
+            task.status = TaskStatus.IN_REVIEW  # Ready for annotator review
+            task.confidence_score = calculate_confidence_score(result['labels'])
+            
+            processed_count += 1
+            
+            # Notify clients of progress
+            await manager.broadcast({
+                "type": "task_processed",
+                "project_id": project_id,
+                "task_id": task.id,
+                "status": "completed"
+            })
+            
+        except Exception as e:
+            # Mark task as failed and revert to uploaded status for retry
+            task.status = TaskStatus.UPLOADED
+            failed_count += 1
+            
+            # Notify clients of failure
+            await manager.broadcast({
+                "type": "task_failed",
+                "project_id": project_id,
+                "task_id": task.id,
+                "error": str(e)
+            })
+    
+    # Commit all changes
+    db.commit()
+    
+    # Final notification
+    await manager.broadcast({
+        "type": "auto_labeling_completed",
+        "project_id": project_id,
+        "processed_count": processed_count,
+        "failed_count": failed_count,
+        "status": "completed"
+    })
+    
+    return {
+        "message": f"Processed {processed_count} tasks successfully, {failed_count} failed",
+        "processed_count": processed_count,
+        "failed_count": failed_count,
+        "status": "completed"
+    }
 
 # Annotation endpoints
 @app.get("/projects/{project_id}/tasks/pending", response_model=List[TaskResponse])
@@ -462,6 +690,14 @@ async def submit_client_feedback(
 async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
     """Get project statistics for dashboard"""
     total_tasks = db.query(Task).filter(Task.project_id == project_id).count()
+    uploaded = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.status == TaskStatus.UPLOADED
+    ).count()
+    processing = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.status == TaskStatus.PROCESSING
+    ).count()
     in_review = db.query(Task).filter(
         Task.project_id == project_id,
         Task.status == TaskStatus.IN_REVIEW
@@ -493,13 +729,34 @@ async def get_project_stats(project_id: int, db: Session = Depends(get_db)):
     
     return {
         "total_tasks": total_tasks,
-        "in_review": in_review,  # Changed from auto_labeled to in_review
+        "uploaded": uploaded,
+        "processing": processing,
+        "in_review": in_review,
         "reviewed": reviewed,
         "approved": approved,
         "rejected": rejected,
         "completion_rate": (completed_by_client / total_tasks * 100) if total_tasks > 0 else 0,
         "average_confidence": round(avg_conf, 2)
     }
+
+# Queue status endpoint
+@app.get("/projects/{project_id}/queue-status")
+async def get_queue_status(project_id: int):
+    """Get RabbitMQ queue status for monitoring"""
+    try:
+        publisher = get_rabbitmq_publisher()
+        queue_status = publisher.get_queue_status()
+        return {
+            "project_id": project_id,
+            "queue_status": queue_status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {
+            "project_id": project_id,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 # Export endpoint
 @app.get("/projects/{project_id}/export")
@@ -544,24 +801,38 @@ async def export_ner_csv(project_id: int, db: Session = Depends(get_db)):
     writer.writerow(['id', 'input_text', 'annotation'])
     
     for task in tasks:
-        if task.auto_labels and 'entities' in task.auto_labels:
-            entities = task.auto_labels['entities']
+        if task.auto_labels:
+            # Handle both old and new data structures
+            entities = None
+            if 'entities' in task.auto_labels:
+                entities = task.auto_labels['entities']
+            elif 'labels' in task.auto_labels and 'entities' in task.auto_labels['labels']:
+                entities = task.auto_labels['labels']['entities']
             
-            # Create annotation object with class_name, start_index, end_index
-            annotation = []
-            for entity in entities:
-                annotation.append({
-                    'class_name': entity['class_name'],
-                    'start_index': entity['start_index'],
-                    'end_index': entity['end_index']
-                })
-            
-            # Write row
-            writer.writerow([
-                task.id,
-                task.text,
-                json.dumps(annotation)
-            ])
+            if entities and len(entities) > 0:
+                # Create annotation object with class_name, start_index, end_index, and text
+                annotation = []
+                for entity in entities:
+                    annotation.append({
+                        'text': entity.get('text', ''),
+                        'class_name': entity.get('class_name', ''),
+                        'start_index': entity.get('start_index', 0),
+                        'end_index': entity.get('end_index', 0)
+                    })
+                
+                # Write row
+                writer.writerow([
+                    task.id,
+                    task.text,
+                    json.dumps(annotation)
+                ])
+            else:
+                # Write row with empty annotation for tasks without entities
+                writer.writerow([
+                    task.id,
+                    task.text,
+                    json.dumps([])
+                ])
     
     output.seek(0)
     
